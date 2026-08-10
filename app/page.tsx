@@ -12,6 +12,11 @@ const DEFAULT_CRITERIA = {
   maxDepositManwon: 500,
   maxMonthlyManwon: 360,
 };
+const RELAXED_CRITERIA = {
+  minRealPyeong: 5,
+  maxDepositManwon: 3000,
+  maxMonthlyManwon: 800,
+};
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
@@ -191,6 +196,35 @@ export default function Home() {
       maxReal,
     };
   }, [sourceListings, stats.qualified]);
+  const maxRealSlider = sliderSummary.maxReal
+    ? Math.max(
+        DEFAULT_CRITERIA.minRealPyeong,
+        Math.floor(sliderSummary.maxReal * 10) / 10,
+      )
+    : 25;
+
+  useEffect(() => {
+    if (!sliderSummary.maxReal) return;
+    if (criteria.minRealPyeong <= maxRealSlider) return;
+    queueMicrotask(() =>
+      setCriteria((current) => ({
+        ...current,
+        minRealPyeong: maxRealSlider,
+      })),
+    );
+  }, [criteria.minRealPyeong, maxRealSlider, sliderSummary.maxReal]);
+
+  function showRelaxedResults() {
+    setCriteria(RELAXED_CRITERIA);
+    setSelectedPass("조건통과");
+    setSelectedRegister("전체");
+  }
+
+  function showDefaultResults() {
+    setCriteria(DEFAULT_CRITERIA);
+    setSelectedPass("조건통과");
+    setSelectedRegister("전체");
+  }
 
   async function recrawl() {
     setIsRecrawling(true);
@@ -307,6 +341,9 @@ export default function Home() {
                 ? `${sliderSummary.minReal.toFixed(2)}~${sliderSummary.maxReal.toFixed(2)}평`
                 : "확인 중"}
             </span>
+            <span>
+              현재 데이터에 없는 전용면적 구간은 슬라이더에서 제외했습니다.
+            </span>
           </div>
           <div className="sliderLive">
             <div>
@@ -320,9 +357,16 @@ export default function Home() {
             <button
               className="quietAction"
               type="button"
-              onClick={() => setCriteria(DEFAULT_CRITERIA)}
+              onClick={showDefaultResults}
             >
               조건 초기화
+            </button>
+            <button
+              className="quietAction"
+              type="button"
+              onClick={showRelaxedResults}
+            >
+              넓게 보기
             </button>
           </div>
         </div>
@@ -333,9 +377,9 @@ export default function Home() {
             <input
               type="range"
               min="5"
-              max="25"
+              max={maxRealSlider}
               step="0.1"
-              value={criteria.minRealPyeong}
+              value={Math.min(criteria.minRealPyeong, maxRealSlider)}
               onChange={(event) =>
                 setCriteria((current) => ({
                   ...current,
@@ -441,14 +485,22 @@ export default function Home() {
           <div className="emptyResults">
             <strong>현재 조건에 맞는 표시 매물이 없습니다.</strong>
             <p>
-              슬라이더 값은 즉시 적용되고 있습니다. 다만 현재 상세 수집된
-              데이터의 전용면적 범위가{" "}
+              슬라이더 값과 상태 필터는 즉시 적용되고 있습니다. 현재 상세 수집된
+              전용면적 범위는{" "}
               {sliderSummary.minReal !== null && sliderSummary.maxReal !== null
                 ? `${sliderSummary.minReal.toFixed(2)}~${sliderSummary.maxReal.toFixed(2)}평`
-                : "아직 충분히 확인되지 않아"}
-              이라서, 전용면적을 이 범위 밖으로 올리거나 보증금·월세를 좁히면
-              0건이 될 수 있습니다.
+                : "아직 충분히 확인되지 않음"}
+              입니다. 전입 필터나 조건 판정 필터가 함께 좁혀져도 0건이 될 수
+              있습니다.
             </p>
+            <div className="emptyActions">
+              <button type="button" onClick={showRelaxedResults}>
+                넓게 보기
+              </button>
+              <button type="button" onClick={showDefaultResults}>
+                기본 조건으로
+              </button>
+            </div>
           </div>
         ) : null}
         {listings.map((listing, index) => {

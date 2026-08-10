@@ -366,6 +366,29 @@ select {
   max-width: 760px;
 }
 
+.emptyActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.emptyActions button {
+  background: var(--foreground);
+  border: 1px solid var(--foreground);
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  min-height: 40px;
+  padding: 8px 14px;
+}
+
+.emptyActions button + button {
+  background: var(--panel);
+  color: var(--foreground);
+}
+
 .listing {
   background: var(--panel);
   border: 1px solid var(--line);
