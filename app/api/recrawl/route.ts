@@ -1,0 +1,22 @@
+import { crawlPeterpan } from "../../lib/crawler";
+
+export const runtime = "edge";
+export const dynamic = "force-dynamic";
+
+export async function POST(request: Request) {
+  const body = (await request.json().catch(() => ({}))) as {
+    limit?: number;
+    detailLimit?: number;
+  };
+
+  const data = await crawlPeterpan({
+    limit: body.limit ?? 240,
+    detailLimit: body.detailLimit ?? 80,
+  });
+
+  return Response.json(data, {
+    headers: {
+      "Cache-Control": "no-store",
+    },
+  });
+}
