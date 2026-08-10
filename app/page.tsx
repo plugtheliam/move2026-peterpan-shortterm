@@ -5,7 +5,7 @@ import type { CrawlData, Listing } from "./lib/crawler";
 
 const registerOrder = ["전체", "확정 가능", "본문에 가능", "미표시"] as const;
 const passOrder = ["조건통과", "상세미확인", "탈락"] as const;
-const LOCAL_KEY = "peterpan-shortterm-recrawl-v2";
+const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v3";
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
 
 function formatDate(value?: string | null) {
@@ -47,17 +47,32 @@ export default function Home() {
   const [activeImage, setActiveImage] = useState<Record<number, number>>({});
   const [isRecrawling, setIsRecrawling] = useState(false);
   const [recrawlMessage, setRecrawlMessage] = useState("");
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     const stored = window.localStorage.getItem(LOCAL_KEY);
     if (stored) {
-      setData(JSON.parse(stored) as CrawlData);
-      return;
+      try {
+        const savedData = JSON.parse(stored) as CrawlData;
+        if (savedData?.allListings?.length) {
+          setData(savedData);
+          return;
+        }
+        window.localStorage.removeItem(LOCAL_KEY);
+      } catch {
+        window.localStorage.removeItem(LOCAL_KEY);
+      }
     }
 
     fetch(`${BASE_PATH}/data/listings.json`)
       .then((response) => response.json())
-      .then(setData);
+      .then((nextData: CrawlData) => {
+        setData(nextData);
+        setLoadError("");
+      })
+      .catch(() => {
+        setLoadError("매물 자료를 불러오지 못했습니다. 새로고침해 주세요.");
+      });
   }, []);
 
   const sourceListings = data?.allListings ?? data?.listings ?? [];
@@ -141,7 +156,11 @@ export default function Home() {
   }
 
   if (!data) {
-    return <main className="loading">매물 자료를 불러오는 중입니다.</main>;
+    return (
+      <main className="loading">
+        {loadError || "매물 자료를 불러오는 중입니다."}
+      </main>
+    );
   }
 
   return (
