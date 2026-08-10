@@ -42,8 +42,8 @@ export default function Home() {
   const [selectedRegister, setSelectedRegister] =
     useState<(typeof registerOrder)[number]>("전체");
   const [selectedPass, setSelectedPass] =
-    useState<"전체" | (typeof passOrder)[number]>("전체");
-  const [sortMode, setSortMode] = useState("priority");
+    useState<"전체" | (typeof passOrder)[number]>("조건통과");
+  const [sortMode, setSortMode] = useState("newest");
   const [activeImage, setActiveImage] = useState<Record<number, number>>({});
   const [isRecrawling, setIsRecrawling] = useState(false);
   const [recrawlMessage, setRecrawlMessage] = useState("");
@@ -274,8 +274,8 @@ export default function Home() {
       <section className="resultHeader">
         <h2>{listings.length.toLocaleString("ko-KR")}건 표시 중</h2>
         <p>
-          상세 보강 전 목록 매물은 사용승인일·전입신고가 비어 있을 수 있습니다.
-          피터팬 버튼으로 상세를 열어 최종 확인하세요.
+          기본 화면은 조건 통과 매물을 사용승인 최신순으로 보여줍니다. 전입은
+          우대 정보이며, 가능 여부와 무관하게 조건을 통과할 수 있습니다.
         </p>
       </section>
 
