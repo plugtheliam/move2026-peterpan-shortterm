@@ -398,6 +398,16 @@ h2 {
   margin: 8px 0 4px;
 }
 
+.metrics .pyeongValue {
+  font-size: 28px;
+  line-height: 1.05;
+}
+
+.metrics .sqmValue {
+  font-size: 12px;
+  margin-top: 6px;
+}
+
 .reasonLine {
   display: flex;
   flex-wrap: wrap;

@@ -321,11 +321,11 @@ export default function Home() {
                 <div className="metrics">
                   <div>
                     <span>전용</span>
-                    <strong>
-                      {listing.realSize ? listing.realSize.toFixed(2) : "-"}㎡
-                    </strong>
-                    <small>
+                    <strong className="pyeongValue">
                       {listing.realPyeong ? listing.realPyeong.toFixed(2) : "-"}평
+                    </strong>
+                    <small className="sqmValue">
+                      {listing.realSize ? listing.realSize.toFixed(2) : "-"}㎡
                     </small>
                   </div>
                   <div>
