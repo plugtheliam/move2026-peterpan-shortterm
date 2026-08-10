@@ -185,6 +185,62 @@ h1 {
   padding: 12px clamp(20px, 4vw, 64px);
 }
 
+.sliderBand {
+  background: #fbfcfd;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 16px;
+  padding: 18px clamp(20px, 4vw, 64px);
+}
+
+.sliderHeader {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.sliderHeader strong,
+.sliderHeader span {
+  display: block;
+}
+
+.sliderHeader span {
+  color: var(--muted);
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.sliders {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.sliders label {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.sliders span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sliders strong {
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.sliders input[type="range"] {
+  accent-color: var(--green);
+  width: 100%;
+}
+
 .filterBand {
   align-items: center;
   background: var(--panel);
@@ -500,6 +556,12 @@ h2 {
   padding: 8px 12px;
 }
 
+.links a.primaryLink {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+
 @media (max-width: 980px) {
   .hero,
   .listing {
@@ -517,9 +579,14 @@ h2 {
   }
 
   .filterBand,
+  .sliderHeader,
   .resultHeader {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .sliders {
+    grid-template-columns: 1fr;
   }
 
   .segmented {

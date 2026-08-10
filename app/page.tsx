@@ -5,8 +5,13 @@ import type { CrawlData, Listing } from "./lib/crawler";
 
 const registerOrder = ["전체", "확정 가능", "본문에 가능", "미표시"] as const;
 const passOrder = ["조건통과", "상세미확인", "탈락"] as const;
-const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v4";
+const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v5";
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
+const DEFAULT_CRITERIA = {
+  minRealPyeong: 15,
+  maxDepositManwon: 500,
+  maxMonthlyManwon: 360,
+};
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
@@ -37,6 +42,43 @@ function visibleDate(value: string) {
   });
 }
 
+function dynamicReasons(listing: Listing, criteria: typeof DEFAULT_CRITERIA) {
+  const reasons: string[] = [];
+  const contractType = String(listing.rawSignals?.contractType ?? "");
+
+  if (listing.address && !listing.address.startsWith("서울특별시")) {
+    reasons.push("서울 아님");
+  }
+  if (contractType !== "단기임대" && contractType !== "월세") {
+    reasons.push("월세/단기임대 아님");
+  }
+  if ((listing.realPyeong ?? 0) < criteria.minRealPyeong) {
+    reasons.push(`전용 ${criteria.minRealPyeong.toFixed(1)}평 미만`);
+  }
+  if (listing.depositManwon > criteria.maxDepositManwon) {
+    reasons.push("보증금 초과");
+  }
+  if (listing.monthlyManwon > criteria.maxMonthlyManwon) {
+    reasons.push("월세 초과");
+  }
+  if (listing.buildYear !== null && listing.buildYear < 2000) {
+    reasons.push("2000년 이전");
+  }
+  if (listing.dataDepth === "상세" && !listing.buildingDate) {
+    reasons.push("사용승인일 미표시");
+  }
+
+  return reasons;
+}
+
+function dynamicPassStatus(
+  listing: Listing,
+  criteria: typeof DEFAULT_CRITERIA,
+): Listing["passStatus"] {
+  if (listing.dataDepth !== "상세") return "상세미확인";
+  return dynamicReasons(listing, criteria).length ? "탈락" : "조건통과";
+}
+
 export default function Home() {
   const [data, setData] = useState<CrawlData | null>(null);
   const [selectedRegister, setSelectedRegister] =
@@ -44,6 +86,7 @@ export default function Home() {
   const [selectedPass, setSelectedPass] =
     useState<"전체" | (typeof passOrder)[number]>("조건통과");
   const [sortMode, setSortMode] = useState("newest");
+  const [criteria, setCriteria] = useState(DEFAULT_CRITERIA);
   const [activeImage, setActiveImage] = useState<Record<number, number>>({});
   const [isRecrawling, setIsRecrawling] = useState(false);
   const [recrawlMessage, setRecrawlMessage] = useState("");
@@ -81,7 +124,8 @@ export default function Home() {
     const filtered = sourceListings.filter((item) => {
       const registerMatch =
         selectedRegister === "전체" || item.registerStatus === selectedRegister;
-      const passMatch = selectedPass === "전체" || item.passStatus === selectedPass;
+      const passStatus = dynamicPassStatus(item, criteria);
+      const passMatch = selectedPass === "전체" || passStatus === selectedPass;
       return registerMatch && passMatch;
     });
 
@@ -92,8 +136,10 @@ export default function Home() {
       if (sortMode === "detail") {
         return Number(b.dataDepth === "상세") - Number(a.dataDepth === "상세");
       }
+      const aPass = dynamicPassStatus(a, criteria);
+      const bPass = dynamicPassStatus(b, criteria);
       return (
-        Number(b.passStatus === "조건통과") - Number(a.passStatus === "조건통과") ||
+        Number(bPass === "조건통과") - Number(aPass === "조건통과") ||
         Number(b.registerStatus === "확정 가능") -
           Number(a.registerStatus === "확정 가능") ||
         Number(b.registerStatus === "본문에 가능") -
@@ -101,7 +147,7 @@ export default function Home() {
         b.realSize - a.realSize
       );
     });
-  }, [sourceListings, selectedRegister, selectedPass, sortMode]);
+  }, [sourceListings, selectedRegister, selectedPass, sortMode, criteria]);
 
   const stats = useMemo(() => {
     const items = sourceListings;
@@ -111,7 +157,9 @@ export default function Home() {
     const textOnly = items.filter(
       (item) => item.registerStatus === "본문에 가능",
     ).length;
-    const qualified = items.filter((item) => item.passStatus === "조건통과").length;
+    const qualified = items.filter(
+      (item) => dynamicPassStatus(item, criteria) === "조건통과",
+    ).length;
     const detail = items.filter((item) => item.dataDepth === "상세").length;
     const imageCount = items.reduce(
       (sum, item) => sum + (item.images?.length ?? 0),
@@ -123,7 +171,13 @@ export default function Home() {
     );
 
     return { confirmed, textOnly, qualified, detail, imageCount, roadviewCount };
-  }, [sourceListings]);
+  }, [sourceListings, criteria]);
+
+  const sliderSummary = useMemo(() => {
+    const detailed = sourceListings.filter((item) => item.dataDepth === "상세");
+    const dynamicExcluded = detailed.length - stats.qualified;
+    return { detailed: detailed.length, dynamicExcluded };
+  }, [sourceListings, stats.qualified]);
 
   async function recrawl() {
     setIsRecrawling(true);
@@ -225,6 +279,79 @@ export default function Home() {
 
       {recrawlMessage ? <div className="recrawlNote">{recrawlMessage}</div> : null}
 
+      <section className="sliderBand" aria-label="동적 조건">
+        <div className="sliderHeader">
+          <div>
+            <strong>조건 슬라이더</strong>
+            <span>
+              전용 {criteria.minRealPyeong.toFixed(1)}평 이상 · 보증금{" "}
+              {criteria.maxDepositManwon}만원 이하 · 월세{" "}
+              {criteria.maxMonthlyManwon}만원 이하
+            </span>
+          </div>
+          <button
+            className="quietAction"
+            type="button"
+            onClick={() => setCriteria(DEFAULT_CRITERIA)}
+          >
+            조건 초기화
+          </button>
+        </div>
+        <div className="sliders">
+          <label>
+            <span>전용면적 최소</span>
+            <strong>{criteria.minRealPyeong.toFixed(1)}평</strong>
+            <input
+              type="range"
+              min="5"
+              max="25"
+              step="0.1"
+              value={criteria.minRealPyeong}
+              onChange={(event) =>
+                setCriteria((current) => ({
+                  ...current,
+                  minRealPyeong: Number(event.target.value),
+                }))
+              }
+            />
+          </label>
+          <label>
+            <span>보증금 최대</span>
+            <strong>{criteria.maxDepositManwon}만원</strong>
+            <input
+              type="range"
+              min="0"
+              max="3000"
+              step="50"
+              value={criteria.maxDepositManwon}
+              onChange={(event) =>
+                setCriteria((current) => ({
+                  ...current,
+                  maxDepositManwon: Number(event.target.value),
+                }))
+              }
+            />
+          </label>
+          <label>
+            <span>월세 최대</span>
+            <strong>{criteria.maxMonthlyManwon}만원</strong>
+            <input
+              type="range"
+              min="0"
+              max="800"
+              step="10"
+              value={criteria.maxMonthlyManwon}
+              onChange={(event) =>
+                setCriteria((current) => ({
+                  ...current,
+                  maxMonthlyManwon: Number(event.target.value),
+                }))
+              }
+            />
+          </label>
+        </div>
+      </section>
+
       <section className="filterBand" aria-label="상태 필터">
         <div className="segmented" aria-label="조건 판정 필터">
           {(["전체", ...passOrder] as const).map((status) => (
@@ -274,8 +401,9 @@ export default function Home() {
       <section className="resultHeader">
         <h2>{listings.length.toLocaleString("ko-KR")}건 표시 중</h2>
         <p>
-          기본 화면은 조건 통과 매물을 사용승인 최신순으로 보여줍니다. 전입은
-          우대 정보이며, 가능 여부와 무관하게 조건을 통과할 수 있습니다.
+          조건 통과는 현재 슬라이더 값으로 즉시 다시 계산됩니다. 상세 확인{" "}
+          {sliderSummary.detailed}건 중 {sliderSummary.dynamicExcluded}건은 현재
+          조건에서 제외됩니다.
         </p>
       </section>
 
@@ -284,6 +412,8 @@ export default function Home() {
           const imageIndex = activeImage[listing.id] ?? 0;
           const heroImage =
             listing.images?.[imageIndex] ?? listing.roadviews?.[0]?.image;
+          const passStatus = dynamicPassStatus(listing, criteria);
+          const currentReasons = dynamicReasons(listing, criteria);
 
           return (
             <article className="listing" key={listing.id}>
@@ -307,8 +437,8 @@ export default function Home() {
                     <h2>{listing.title}</h2>
                   </div>
                   <div className="badgeStack">
-                    <span className={`badge ${passClass(listing.passStatus)}`}>
-                      {listing.passStatus}
+                    <span className={`badge ${passClass(passStatus)}`}>
+                      {passStatus}
                     </span>
                     <span
                       className={`badge ${registerClass(listing.registerStatus)}`}
@@ -347,9 +477,9 @@ export default function Home() {
                   </div>
                 </div>
 
-                {listing.excludedReasons?.length ? (
+                {currentReasons.length ? (
                   <div className="reasonLine">
-                    {listing.excludedReasons.map((reason) => (
+                    {currentReasons.map((reason) => (
                       <span key={reason}>{reason}</span>
                     ))}
                   </div>
@@ -365,6 +495,10 @@ export default function Home() {
                   <p>
                     <strong>입주</strong> {listing.moveText || "-"} ·{" "}
                     <strong>관리비</strong> {listing.maintenanceManwon}만원
+                  </p>
+                  <p>
+                    <strong>피터팬 등록</strong>{" "}
+                    {formatDate(listing.peterpanCreatedAt ?? listing.liveStartDate)}
                   </p>
                   <p>
                     <strong>계약유형</strong>{" "}
@@ -413,7 +547,12 @@ export default function Home() {
                 ) : null}
 
                 <div className="links" aria-label="외부 조사 링크">
-                  <a href={listing.url} target="_blank" rel="noreferrer">
+                  <a
+                    className="primaryLink"
+                    href={listing.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
                     피터팬
                   </a>
                   <a

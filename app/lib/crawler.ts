@@ -88,6 +88,7 @@ export type Listing = {
   buildYear: number | null;
   registerStatus: "확정 가능" | "본문에 가능" | "미표시";
   moveText?: string;
+  peterpanCreatedAt?: string;
   liveStartDate?: string;
   liveEndDate?: string;
   illegalBuilding?: number | null;
@@ -377,6 +378,7 @@ function buildListing(item: PeterpanListItem, detail?: Record<string, unknown>, 
     buildYear,
     registerStatus,
     moveText: stringValue(detail?.move_text),
+    peterpanCreatedAt: stringValue(detail?.created_at) || item.info?.created_at,
     liveStartDate:
       stringValue(detail?.live_start_date) || item.info?.live_start_date,
     liveEndDate: stringValue(detail?.live_end_date),
