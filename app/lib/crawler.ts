@@ -156,16 +156,21 @@ function unique<T>(items: T[]) {
   return [...new Set(items)];
 }
 
-function buildListUrl(pageIndex: number, orderId?: string, includeSizeFilter = false) {
+function buildListUrl(
+  pageIndex: number,
+  orderId?: string,
+  includeSizeFilter = false,
+  contractMode: "short" | "all" = "short",
+) {
   const filterParts = [
     `latitude:${SEOUL_BOUNDS.minLat}~${SEOUL_BOUNDS.maxLat}`,
     `longitude:${SEOUL_BOUNDS.minLon}~${SEOUL_BOUNDS.maxLon}`,
     'buildingType;["빌라/주택","오피스텔","아파트","원/투룸"]',
-    'contractType;["단기임대"]',
     "checkDeposit:0~5000000",
     "checkMonth:0~3600000",
   ];
 
+  if (contractMode === "short") filterParts.push('contractType;["단기임대"]');
   if (includeSizeFilter) filterParts.push("checkRealSize:49.58~999");
 
   const filter = filterParts.join("||");
@@ -326,6 +331,10 @@ function buildListing(item: PeterpanListItem, detail?: Record<string, unknown>, 
   if (deposit > 5_000_000) excludedReasons.push("보증금 초과");
   if (monthly > 3_600_000) excludedReasons.push("월세 초과");
   if (realSize < 49.58) excludedReasons.push("전용 15평 미만");
+  const contractType = stringValue(detail?.contract_type) || item.type?.contract_type || "";
+  if (contractType !== "단기임대" && contractType !== "월세") {
+    excludedReasons.push("월세/단기임대 아님");
+  }
   if (buildYear !== null && buildYear < 2000) excludedReasons.push("2000년 이전");
   if (detail && !buildingDate) excludedReasons.push("사용승인일 미표시");
 
@@ -388,6 +397,7 @@ function buildListing(item: PeterpanListItem, detail?: Record<string, unknown>, 
     rawSignals: {
       naverVerification: item.attribute?.naverVerification,
       statusCode: item.attribute?.status_code,
+      contractType,
       tradeType: item.type?.trade_type,
       buildingCode: item.type?.building_code,
       specialPick: item.info?.special_pick,
@@ -414,7 +424,11 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-async function collectListItems(limit: number, includeSizeFilter: boolean) {
+async function collectListItems(
+  limit: number,
+  includeSizeFilter: boolean,
+  contractMode: "short" | "all" = "short",
+) {
   const pages = Math.ceil(limit / 100);
   const byId = new Map<number, PeterpanListItem>();
   let totalApiCount = 0;
@@ -425,7 +439,7 @@ async function collectListItems(limit: number, includeSizeFilter: boolean) {
       houses?: Record<string, Record<string, PeterpanListItem[]>>;
       totalCount?: number;
       orderId?: number | string;
-    }>(buildListUrl(page, orderId, includeSizeFilter));
+    }>(buildListUrl(page, orderId, includeSizeFilter, contractMode));
 
     if (page === 1) {
       totalApiCount = data.totalCount ?? 0;
@@ -448,9 +462,20 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
   const detailLimit = Math.max(0, Math.min(options.detailLimit ?? 80, limit));
   const byId = new Map<number, PeterpanListItem>();
 
-  const likelyQualified = await collectListItems(100, true);
+  const likelyQualified = await collectListItems(300, true, "all");
   const broadPool = await collectListItems(limit, false);
 
+  const priorityCandidates = likelyQualified.items.filter((item) => {
+    const contractType = item.type?.contract_type;
+    return (
+      (contractType === "단기임대" || contractType === "월세") &&
+      (item.info?.real_size ?? 0) >= 49.58 &&
+      (item.price?.deposit ?? 0) <= 5_000_000 &&
+      (item.price?.monthly_fee ?? 0) <= 3_600_000
+    );
+  });
+
+  for (const item of priorityCandidates) byId.set(item.hidx, item);
   for (const item of likelyQualified.items) byId.set(item.hidx, item);
   for (const item of broadPool.items) {
     if (!byId.has(item.hidx)) byId.set(item.hidx, item);
@@ -496,17 +521,19 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
   return {
     generatedAt: new Date().toISOString(),
     source:
-      "피터팬 공개 목록 API, 일부 매물 상세 HTML, 카카오 로드뷰 공개 노드 API",
+      "피터팬 공개 목록 API, 전용 15평 이상 우선 풀, 일부 매물 상세 HTML, 카카오 로드뷰 공개 노드 API",
     query: {
       location: "서울",
-      contract: "단기임대",
+      contract: "단기임대 또는 월세",
       maxDepositManwon: 500,
       maxMonthlyManwon: 360,
       rawCollectLimit: limit,
       detailLimit,
-      finalFilter: "전용 49.58㎡ 이상, 사용승인 2000년 이후",
+      finalFilter:
+        "전용 49.58㎡ 이상, 보증금 500만원 이하, 월세 360만원 이하, 사용승인 2000년 이후, 계약유형 단기임대 또는 월세",
+      note: "공급면적은 통과 판정에 사용하지 않음",
     },
-    totalApiCount: broadPool.totalApiCount,
+    totalApiCount: likelyQualified.totalApiCount,
     collectedCount: listings.length,
     qualifiedCount: qualified.length,
     excludedCount: excluded.length,

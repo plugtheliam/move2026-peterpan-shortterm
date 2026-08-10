@@ -5,7 +5,7 @@ import type { CrawlData, Listing } from "./lib/crawler";
 
 const registerOrder = ["전체", "확정 가능", "본문에 가능", "미표시"] as const;
 const passOrder = ["조건통과", "상세미확인", "탈락"] as const;
-const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v3";
+const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v4";
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
 
 function formatDate(value?: string | null) {
@@ -170,9 +170,9 @@ export default function Home() {
           <p className="eyebrow">Peterpanz Seoul Short-Term Scout</p>
           <h1>서울 단기임대 원천 데이터 200+ 검토판</h1>
           <p className="lead">
-            서울 단기임대·보증금 500만원 이하·월세 360만원 이하 원천 풀을
-            넓게 모으고, 상세 확인이 된 매물은 15평·연식 조건까지 판정합니다.
-            재수집은 백그라운드로 실행되고 결과는 이 브라우저에 저장됩니다.
+            서울 전용 15평 이상 매물 중 보증금 500만원 이하·월세 360만원
+            이하인 단기임대와 월세 후보를 함께 검토합니다. 공급면적은 통과
+            기준에 넣지 않고, 재수집 결과는 이 브라우저에 저장됩니다.
           </p>
         </div>
         <div className="heroStats" aria-label="수집 요약">
@@ -365,6 +365,10 @@ export default function Home() {
                   <p>
                     <strong>입주</strong> {listing.moveText || "-"} ·{" "}
                     <strong>관리비</strong> {listing.maintenanceManwon}만원
+                  </p>
+                  <p>
+                    <strong>계약유형</strong>{" "}
+                    {String(listing.rawSignals?.contractType ?? "-")}
                   </p>
                   <p>
                     <strong>후기</strong> {listing.reviewFinding}
