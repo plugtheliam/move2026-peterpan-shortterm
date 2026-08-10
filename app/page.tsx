@@ -5,7 +5,7 @@ import type { CrawlData, Listing } from "./lib/crawler";
 
 const registerOrder = ["전체", "확정 가능", "본문에 가능", "미표시"] as const;
 const passOrder = ["조건통과", "상세미확인", "탈락"] as const;
-const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v5";
+const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v6";
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
 const DEFAULT_CRITERIA = {
   minRealPyeong: 15,
@@ -98,7 +98,7 @@ export default function Home() {
       try {
         const savedData = JSON.parse(stored) as CrawlData;
         if (savedData?.allListings?.length) {
-          setData(savedData);
+          queueMicrotask(() => setData(savedData));
           return;
         }
         window.localStorage.removeItem(LOCAL_KEY);
@@ -118,7 +118,10 @@ export default function Home() {
       });
   }, []);
 
-  const sourceListings = data?.allListings ?? data?.listings ?? [];
+  const sourceListings = useMemo(
+    () => data?.allListings ?? data?.listings ?? [],
+    [data],
+  );
 
   const listings = useMemo(() => {
     const filtered = sourceListings.filter((item) => {
@@ -176,7 +179,17 @@ export default function Home() {
   const sliderSummary = useMemo(() => {
     const detailed = sourceListings.filter((item) => item.dataDepth === "상세");
     const dynamicExcluded = detailed.length - stats.qualified;
-    return { detailed: detailed.length, dynamicExcluded };
+    const realValues = detailed
+      .map((item) => item.realPyeong)
+      .filter((value) => Number.isFinite(value) && value > 0);
+    const minReal = realValues.length ? Math.min(...realValues) : null;
+    const maxReal = realValues.length ? Math.max(...realValues) : null;
+    return {
+      detailed: detailed.length,
+      dynamicExcluded,
+      minReal,
+      maxReal,
+    };
   }, [sourceListings, stats.qualified]);
 
   async function recrawl() {
@@ -186,7 +199,7 @@ export default function Home() {
       const response = await fetch(`${BASE_PATH}/api/recrawl`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ limit: 240, detailLimit: 100 }),
+        body: JSON.stringify({ limit: 360, detailLimit: 140 }),
       });
       if (!response.ok) throw new Error("재수집 요청 실패");
       const nextData = (await response.json()) as CrawlData;
@@ -288,14 +301,30 @@ export default function Home() {
               {criteria.maxDepositManwon}만원 이하 · 월세{" "}
               {criteria.maxMonthlyManwon}만원 이하
             </span>
+            <span>
+              상세 수집 전용면적 범위{" "}
+              {sliderSummary.minReal !== null && sliderSummary.maxReal !== null
+                ? `${sliderSummary.minReal.toFixed(2)}~${sliderSummary.maxReal.toFixed(2)}평`
+                : "확인 중"}
+            </span>
           </div>
-          <button
-            className="quietAction"
-            type="button"
-            onClick={() => setCriteria(DEFAULT_CRITERIA)}
-          >
-            조건 초기화
-          </button>
+          <div className="sliderLive">
+            <div>
+              <strong>{stats.qualified.toLocaleString("ko-KR")}</strong>
+              <span>현재 조건통과</span>
+            </div>
+            <div>
+              <strong>{listings.length.toLocaleString("ko-KR")}</strong>
+              <span>현재 표시</span>
+            </div>
+            <button
+              className="quietAction"
+              type="button"
+              onClick={() => setCriteria(DEFAULT_CRITERIA)}
+            >
+              조건 초기화
+            </button>
+          </div>
         </div>
         <div className="sliders">
           <label>
@@ -408,6 +437,20 @@ export default function Home() {
       </section>
 
       <section className="listingGrid" aria-label="매물 목록">
+        {listings.length === 0 ? (
+          <div className="emptyResults">
+            <strong>현재 조건에 맞는 표시 매물이 없습니다.</strong>
+            <p>
+              슬라이더 값은 즉시 적용되고 있습니다. 다만 현재 상세 수집된
+              데이터의 전용면적 범위가{" "}
+              {sliderSummary.minReal !== null && sliderSummary.maxReal !== null
+                ? `${sliderSummary.minReal.toFixed(2)}~${sliderSummary.maxReal.toFixed(2)}평`
+                : "아직 충분히 확인되지 않아"}
+              이라서, 전용면적을 이 범위 밖으로 올리거나 보증금·월세를 좁히면
+              0건이 될 수 있습니다.
+            </p>
+          </div>
+        ) : null}
         {listings.map((listing, index) => {
           const imageIndex = activeImage[listing.id] ?? 0;
           const heroImage =

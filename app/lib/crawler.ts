@@ -465,7 +465,8 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
   const byId = new Map<number, PeterpanListItem>();
 
   const likelyQualified = await collectListItems(300, true, "all");
-  const broadPool = await collectListItems(limit, false);
+  const broadShortPool = await collectListItems(limit, false, "short");
+  const broadAllPool = await collectListItems(limit, false, "all");
 
   const priorityCandidates = likelyQualified.items.filter((item) => {
     const contractType = item.type?.contract_type;
@@ -477,9 +478,25 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
     );
   });
 
+  const sliderReachCandidates = [...broadShortPool.items, ...broadAllPool.items].filter((item) => {
+    const contractType = item.type?.contract_type;
+    const realPyeong = item.info?.real_pyeong ?? pyeong(item.info?.real_size);
+    return (
+      (contractType === "단기임대" || contractType === "월세") &&
+      realPyeong >= 5 &&
+      (item.price?.deposit ?? 0) <= 30_000_000 &&
+      (item.price?.monthly_fee ?? 0) <= 8_000_000
+    );
+  });
+
   for (const item of priorityCandidates) byId.set(item.hidx, item);
+  for (const item of sliderReachCandidates) byId.set(item.hidx, item);
   for (const item of likelyQualified.items) byId.set(item.hidx, item);
-  for (const item of broadPool.items) {
+  for (const item of broadShortPool.items) {
+    if (!byId.has(item.hidx)) byId.set(item.hidx, item);
+    if (byId.size >= limit) break;
+  }
+  for (const item of broadAllPool.items) {
     if (!byId.has(item.hidx)) byId.set(item.hidx, item);
     if (byId.size >= limit) break;
   }
@@ -523,7 +540,7 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
   return {
     generatedAt: new Date().toISOString(),
     source:
-      "피터팬 공개 목록 API, 전용 15평 이상 우선 풀, 일부 매물 상세 HTML, 카카오 로드뷰 공개 노드 API",
+      "피터팬 공개 목록 API, 전용 15평 이상 우선 풀, 슬라이더 완화 후보 풀, 일부 매물 상세 HTML, 카카오 로드뷰 공개 노드 API",
     query: {
       location: "서울",
       contract: "단기임대 또는 월세",
@@ -535,7 +552,11 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
         "전용 49.58㎡ 이상, 보증금 500만원 이하, 월세 360만원 이하, 사용승인 2000년 이후, 계약유형 단기임대 또는 월세",
       note: "공급면적은 통과 판정에 사용하지 않음",
     },
-    totalApiCount: likelyQualified.totalApiCount,
+    totalApiCount: Math.max(
+      likelyQualified.totalApiCount,
+      broadShortPool.totalApiCount,
+      broadAllPool.totalApiCount,
+    ),
     collectedCount: listings.length,
     qualifiedCount: qualified.length,
     excludedCount: excluded.length,

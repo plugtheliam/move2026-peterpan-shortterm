@@ -211,6 +211,30 @@ h1 {
   margin-top: 4px;
 }
 
+.sliderLive {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
+}
+
+.sliderLive div {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 118px;
+  padding: 10px 12px;
+}
+
+.sliderLive strong {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.sliderLive span {
+  font-size: 12px;
+}
+
 .sliders {
   display: grid;
   gap: 12px;
@@ -320,6 +344,26 @@ select {
   display: grid;
   gap: 18px;
   padding: 24px clamp(20px, 4vw, 64px) 64px;
+}
+
+.emptyResults {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 28px;
+}
+
+.emptyResults strong {
+  display: block;
+  font-size: 20px;
+  margin-bottom: 8px;
+}
+
+.emptyResults p {
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0;
+  max-width: 760px;
 }
 
 .listing {
@@ -583,6 +627,11 @@ h2 {
   .resultHeader {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .sliderLive {
+    align-items: stretch;
+    flex-wrap: wrap;
   }
 
   .sliders {
