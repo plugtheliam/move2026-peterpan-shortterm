@@ -126,6 +126,14 @@ const SEOUL_BOUNDS = {
   minLon: 126.76,
   maxLon: 127.18,
 };
+const DEFAULT_MAX_DEPOSIT = 5_000_000;
+const DEFAULT_MAX_MONTHLY = 3_600_000;
+const COLLECTION_MAX_DEPOSIT = 10_000_000;
+const COLLECTION_MAX_MONTHLY = 5_000_000;
+const COLLECTION_MIN_REAL_SIZE = 49.58;
+const COLLECTION_MAX_REAL_SIZE = 132.24;
+const COLLECTION_MIN_REAL_PYEONG = 15;
+const COLLECTION_MAX_REAL_PYEONG = 40;
 
 const BASE_HEADERS = {
   "User-Agent":
@@ -162,17 +170,23 @@ function buildListUrl(
   orderId?: string,
   includeSizeFilter = false,
   contractMode: "short" | "all" = "short",
+  maxDeposit = DEFAULT_MAX_DEPOSIT,
+  maxMonthly = DEFAULT_MAX_MONTHLY,
 ) {
   const filterParts = [
     `latitude:${SEOUL_BOUNDS.minLat}~${SEOUL_BOUNDS.maxLat}`,
     `longitude:${SEOUL_BOUNDS.minLon}~${SEOUL_BOUNDS.maxLon}`,
     'buildingType;["빌라/주택","오피스텔","아파트","원/투룸"]',
-    "checkDeposit:0~5000000",
-    "checkMonth:0~3600000",
+    `checkDeposit:0~${maxDeposit}`,
+    `checkMonth:0~${maxMonthly}`,
   ];
 
   if (contractMode === "short") filterParts.push('contractType;["단기임대"]');
-  if (includeSizeFilter) filterParts.push("checkRealSize:49.58~999");
+  if (includeSizeFilter) {
+    filterParts.push(
+      `checkRealSize:${COLLECTION_MIN_REAL_SIZE}~${COLLECTION_MAX_REAL_SIZE}`,
+    );
+  }
 
   const filter = filterParts.join("||");
 
@@ -430,6 +444,8 @@ async function collectListItems(
   limit: number,
   includeSizeFilter: boolean,
   contractMode: "short" | "all" = "short",
+  maxDeposit = DEFAULT_MAX_DEPOSIT,
+  maxMonthly = DEFAULT_MAX_MONTHLY,
 ) {
   const pages = Math.ceil(limit / 100);
   const byId = new Map<number, PeterpanListItem>();
@@ -441,7 +457,16 @@ async function collectListItems(
       houses?: Record<string, Record<string, PeterpanListItem[]>>;
       totalCount?: number;
       orderId?: number | string;
-    }>(buildListUrl(page, orderId, includeSizeFilter, contractMode));
+    }>(
+      buildListUrl(
+        page,
+        orderId,
+        includeSizeFilter,
+        contractMode,
+        maxDeposit,
+        maxMonthly,
+      ),
+    );
 
     if (page === 1) {
       totalApiCount = data.totalCount ?? 0;
@@ -460,38 +485,66 @@ async function collectListItems(
 }
 
 export async function crawlPeterpan(options: { limit?: number; detailLimit?: number } = {}): Promise<CrawlData> {
-  const limit = Math.max(100, Math.min(options.limit ?? 240, 500));
+  const limit = Math.max(100, Math.min(options.limit ?? 240, 800));
   const detailLimit = Math.max(0, Math.min(options.detailLimit ?? 80, limit));
   const byId = new Map<number, PeterpanListItem>();
 
   const likelyQualified = await collectListItems(300, true, "all");
-  const broadShortPool = await collectListItems(limit, false, "short");
-  const broadAllPool = await collectListItems(limit, false, "all");
+  const collectionSizePool = await collectListItems(
+    limit,
+    true,
+    "all",
+    COLLECTION_MAX_DEPOSIT,
+    COLLECTION_MAX_MONTHLY,
+  );
+  const broadShortPool = await collectListItems(
+    limit,
+    false,
+    "short",
+    COLLECTION_MAX_DEPOSIT,
+    COLLECTION_MAX_MONTHLY,
+  );
+  const broadAllPool = await collectListItems(
+    limit,
+    false,
+    "all",
+    COLLECTION_MAX_DEPOSIT,
+    COLLECTION_MAX_MONTHLY,
+  );
 
   const priorityCandidates = likelyQualified.items.filter((item) => {
     const contractType = item.type?.contract_type;
     return (
       (contractType === "단기임대" || contractType === "월세") &&
-      (item.info?.real_size ?? 0) >= 49.58 &&
-      (item.price?.deposit ?? 0) <= 5_000_000 &&
-      (item.price?.monthly_fee ?? 0) <= 3_600_000
+      (item.info?.real_size ?? 0) >= COLLECTION_MIN_REAL_SIZE &&
+      (item.price?.deposit ?? 0) <= DEFAULT_MAX_DEPOSIT &&
+      (item.price?.monthly_fee ?? 0) <= DEFAULT_MAX_MONTHLY
     );
   });
 
-  const sliderReachCandidates = [...broadShortPool.items, ...broadAllPool.items].filter((item) => {
+  const sliderReachCandidates = [
+    ...collectionSizePool.items,
+    ...broadShortPool.items,
+    ...broadAllPool.items,
+  ].filter((item) => {
     const contractType = item.type?.contract_type;
     const realPyeong = item.info?.real_pyeong ?? pyeong(item.info?.real_size);
     return (
       (contractType === "단기임대" || contractType === "월세") &&
-      realPyeong >= 5 &&
-      (item.price?.deposit ?? 0) <= 30_000_000 &&
-      (item.price?.monthly_fee ?? 0) <= 8_000_000
+      realPyeong >= COLLECTION_MIN_REAL_PYEONG &&
+      realPyeong <= COLLECTION_MAX_REAL_PYEONG &&
+      (item.price?.deposit ?? 0) <= COLLECTION_MAX_DEPOSIT &&
+      (item.price?.monthly_fee ?? 0) <= COLLECTION_MAX_MONTHLY
     );
   });
 
   for (const item of priorityCandidates) byId.set(item.hidx, item);
   for (const item of sliderReachCandidates) byId.set(item.hidx, item);
   for (const item of likelyQualified.items) byId.set(item.hidx, item);
+  for (const item of collectionSizePool.items) {
+    if (!byId.has(item.hidx)) byId.set(item.hidx, item);
+    if (byId.size >= limit) break;
+  }
   for (const item of broadShortPool.items) {
     if (!byId.has(item.hidx)) byId.set(item.hidx, item);
     if (byId.size >= limit) break;
@@ -546,14 +599,20 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
       contract: "단기임대 또는 월세",
       maxDepositManwon: 500,
       maxMonthlyManwon: 360,
+      collectionMaxDepositManwon: 1000,
+      collectionMaxMonthlyManwon: 500,
+      collectionMaxRealPyeong: 40,
       rawCollectLimit: limit,
       detailLimit,
       finalFilter:
         "전용 49.58㎡ 이상, 보증금 500만원 이하, 월세 360만원 이하, 사용승인 2000년 이후, 계약유형 단기임대 또는 월세",
+      collectionFilter:
+        "전용 15~40평, 보증금 1000만원 이하, 월세 500만원 이하 후보를 함께 수집",
       note: "공급면적은 통과 판정에 사용하지 않음",
     },
     totalApiCount: Math.max(
       likelyQualified.totalApiCount,
+      collectionSizePool.totalApiCount,
       broadShortPool.totalApiCount,
       broadAllPool.totalApiCount,
     ),

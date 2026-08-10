@@ -5,8 +5,9 @@ import type { CrawlData, Listing } from "./lib/crawler";
 
 const registerOrder = ["전체", "확정 가능", "본문에 가능", "미표시"] as const;
 const passOrder = ["조건통과", "상세미확인", "탈락"] as const;
-const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v7";
+const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v8";
 const LEGACY_LOCAL_KEYS = [
+  "move2026-peterpan-shortterm-recrawl-v7",
   "move2026-peterpan-shortterm-recrawl-v6",
   "move2026-peterpan-shortterm-recrawl-v5",
 ];
@@ -18,9 +19,11 @@ const DEFAULT_CRITERIA = {
 };
 const RELAXED_CRITERIA = {
   minRealPyeong: 5,
-  maxDepositManwon: 3000,
-  maxMonthlyManwon: 800,
+  maxDepositManwon: 1000,
+  maxMonthlyManwon: 500,
 };
+const COLLECTION_LIMIT = 600;
+const DETAIL_LIMIT = 220;
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
@@ -286,7 +289,7 @@ export default function Home() {
       const response = await fetch(`${BASE_PATH}/api/recrawl`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ limit: 360, detailLimit: 140 }),
+        body: JSON.stringify({ limit: COLLECTION_LIMIT, detailLimit: DETAIL_LIMIT }),
       });
       if (!response.ok) throw new Error("재수집 요청 실패");
       const nextData = (await response.json()) as CrawlData;
@@ -457,7 +460,7 @@ export default function Home() {
             <input
               type="range"
               min="0"
-              max="3000"
+              max="1000"
               step="50"
               value={criteria.maxDepositManwon}
               onChange={(event) =>
@@ -474,7 +477,7 @@ export default function Home() {
             <input
               type="range"
               min="0"
-              max="800"
+              max="500"
               step="10"
               value={criteria.maxMonthlyManwon}
               onChange={(event) =>

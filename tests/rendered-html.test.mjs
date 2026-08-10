@@ -69,15 +69,26 @@ test("ships a broad slider-ready Peterpan data set", async () => {
   const relaxedPass = data.allListings.filter((listing) =>
     isDynamicPass(listing, {
       minRealPyeong: 5,
-      maxDepositManwon: 3000,
-      maxMonthlyManwon: 800,
+      maxDepositManwon: 1000,
+      maxMonthlyManwon: 500,
+    }),
+  );
+  const expandedBudgetPass = data.allListings.filter((listing) =>
+    isDynamicPass(listing, {
+      minRealPyeong: 15,
+      maxDepositManwon: 1000,
+      maxMonthlyManwon: 500,
     }),
   );
 
-  assert.equal(data.collectedCount, 360);
-  assert.equal(detailed.length, 140);
+  assert.equal(data.collectedCount, 600);
+  assert.equal(detailed.length, 220);
   assert.equal(defaultPass.length, 18);
-  assert.equal(relaxedPass.length, 109);
+  assert.equal(expandedBudgetPass.length, 22);
+  assert.equal(relaxedPass.length, 43);
+  assert.equal(data.query.collectionMaxDepositManwon, 1000);
+  assert.equal(data.query.collectionMaxMonthlyManwon, 500);
+  assert.equal(data.query.collectionMaxRealPyeong, 40);
   assert.equal(withCreated.length, data.allListings.length);
   assert.equal(withPeterpanLink.length, data.allListings.length);
 });
