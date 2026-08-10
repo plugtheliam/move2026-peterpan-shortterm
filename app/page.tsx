@@ -5,7 +5,11 @@ import type { CrawlData, Listing } from "./lib/crawler";
 
 const registerOrder = ["전체", "확정 가능", "본문에 가능", "미표시"] as const;
 const passOrder = ["조건통과", "상세미확인", "탈락"] as const;
-const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v6";
+const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v7";
+const LEGACY_LOCAL_KEYS = [
+  "move2026-peterpan-shortterm-recrawl-v6",
+  "move2026-peterpan-shortterm-recrawl-v5",
+];
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
 const DEFAULT_CRITERIA = {
   minRealPyeong: 15,
@@ -84,6 +88,33 @@ function dynamicPassStatus(
   return dynamicReasons(listing, criteria).length ? "탈락" : "조건통과";
 }
 
+function getSourceListings(data: CrawlData | null) {
+  return data?.allListings ?? data?.listings ?? [];
+}
+
+function defaultPassCount(data: CrawlData | null) {
+  return getSourceListings(data).filter(
+    (item) => dynamicPassStatus(item, DEFAULT_CRITERIA) === "조건통과",
+  ).length;
+}
+
+function detailedCount(data: CrawlData | null) {
+  return getSourceListings(data).filter((item) => item.dataDepth === "상세")
+    .length;
+}
+
+function isUsableCrawlData(data: CrawlData | null) {
+  return getSourceListings(data).length > 0 && defaultPassCount(data) > 0;
+}
+
+async function fetchDefaultData() {
+  const response = await fetch(`${BASE_PATH}/data/listings.json`, {
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error("기본 데이터 요청 실패");
+  return response.json() as Promise<CrawlData>;
+}
+
 export default function Home() {
   const [data, setData] = useState<CrawlData | null>(null);
   const [selectedRegister, setSelectedRegister] =
@@ -98,35 +129,57 @@ export default function Home() {
   const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(LOCAL_KEY);
-    if (stored) {
+    for (const key of LEGACY_LOCAL_KEYS) {
+      window.localStorage.removeItem(key);
+    }
+
+    let cancelled = false;
+
+    async function loadData() {
+      const applyDefaultData = async (message?: string) => {
+        const nextData = await fetchDefaultData();
+        if (cancelled) return;
+        setData(nextData);
+        setLoadError("");
+        if (message) setRecrawlMessage(message);
+      };
+
       try {
-        const savedData = JSON.parse(stored) as CrawlData;
-        if (savedData?.allListings?.length) {
-          queueMicrotask(() => setData(savedData));
-          return;
+        const stored = window.localStorage.getItem(LOCAL_KEY);
+        if (stored) {
+          try {
+            const savedData = JSON.parse(stored) as CrawlData;
+            if (isUsableCrawlData(savedData)) {
+              setData(savedData);
+              setLoadError("");
+              return;
+            }
+            window.localStorage.removeItem(LOCAL_KEY);
+            await applyDefaultData(
+              "저장된 재수집 결과가 기본 조건 후보를 만들지 못해 기본 데이터로 복구했습니다.",
+            );
+            return;
+          } catch {
+            window.localStorage.removeItem(LOCAL_KEY);
+          }
         }
-        window.localStorage.removeItem(LOCAL_KEY);
+
+        await applyDefaultData();
       } catch {
-        window.localStorage.removeItem(LOCAL_KEY);
+        if (!cancelled) {
+          setLoadError("매물 자료를 불러오지 못했습니다. 새로고침해 주세요.");
+        }
       }
     }
 
-    fetch(`${BASE_PATH}/data/listings.json`)
-      .then((response) => response.json())
-      .then((nextData: CrawlData) => {
-        setData(nextData);
-        setLoadError("");
-      })
-      .catch(() => {
-        setLoadError("매물 자료를 불러오지 못했습니다. 새로고침해 주세요.");
-      });
+    void loadData();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const sourceListings = useMemo(
-    () => data?.allListings ?? data?.listings ?? [],
-    [data],
-  );
+  const sourceListings = useMemo(() => getSourceListings(data), [data]);
 
   const listings = useMemo(() => {
     const filtered = sourceListings.filter((item) => {
@@ -237,6 +290,13 @@ export default function Home() {
       });
       if (!response.ok) throw new Error("재수집 요청 실패");
       const nextData = (await response.json()) as CrawlData;
+      if (!isUsableCrawlData(nextData)) {
+        window.localStorage.removeItem(LOCAL_KEY);
+        setRecrawlMessage(
+          `재수집 결과가 기본 조건 후보를 만들지 못해 적용하지 않았습니다. 수집 ${nextData.collectedCount ?? getSourceListings(nextData).length}건, 상세 ${detailedCount(nextData)}건, 기본 조건통과 ${defaultPassCount(nextData)}건입니다. 현재 기본 데이터를 유지합니다.`,
+        );
+        return;
+      }
       window.localStorage.setItem(LOCAL_KEY, JSON.stringify(nextData));
       setData(nextData);
       setRecrawlMessage(
@@ -253,6 +313,9 @@ export default function Home() {
 
   function clearSavedData() {
     window.localStorage.removeItem(LOCAL_KEY);
+    for (const key of LEGACY_LOCAL_KEYS) {
+      window.localStorage.removeItem(key);
+    }
     window.location.reload();
   }
 
