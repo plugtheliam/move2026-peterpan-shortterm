@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
+import { tmpdir } from "node:os";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -91,4 +93,58 @@ test("ships a broad slider-ready Peterpan data set", async () => {
   assert.equal(data.query.collectionMaxRealPyeong, 40);
   assert.equal(withCreated.length, data.allListings.length);
   assert.equal(withPeterpanLink.length, data.allListings.length);
+});
+
+test("persists listing review actions on the server", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "move2026-actions-"));
+  process.env.MOVE2026_ACTIONS_PATH = join(stateDir, "actions.json");
+
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("actions", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+  const context = {
+    waitUntil() {},
+    passThroughOnException() {},
+  };
+  const env = {
+    ASSETS: {
+      fetch: async () => new Response("Not found", { status: 404 }),
+    },
+  };
+
+  const favoriteResponse = await worker.fetch(
+    new Request("http://localhost/api/listing-actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: 19624063, favorite: true }),
+    }),
+    env,
+    context,
+  );
+  assert.equal(favoriteResponse.status, 200);
+  assert.equal((await favoriteResponse.json()).actions["19624063"].favorite, true);
+
+  const hiddenResponse = await worker.fetch(
+    new Request("http://localhost/api/listing-actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: 19624063, favorite: false, hidden: true }),
+    }),
+    env,
+    context,
+  );
+  assert.equal(hiddenResponse.status, 200);
+  assert.equal((await hiddenResponse.json()).actions["19624063"].hidden, true);
+
+  const clearResponse = await worker.fetch(
+    new Request("http://localhost/api/listing-actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: 19624063, hidden: false }),
+    }),
+    env,
+    context,
+  );
+  assert.equal(clearResponse.status, 200);
+  assert.deepEqual((await clearResponse.json()).actions, {});
 });

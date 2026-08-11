@@ -5,6 +5,7 @@ import type { CrawlData, Listing } from "./lib/crawler";
 
 const registerOrder = ["전체", "확정 가능", "본문에 가능", "미표시"] as const;
 const passOrder = ["조건통과", "상세미확인", "탈락"] as const;
+const reviewOrder = ["숨김 제외", "찜", "숨김", "전체"] as const;
 const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v9";
 const LEGACY_LOCAL_KEYS = [
   "move2026-peterpan-shortterm-recrawl-v8",
@@ -26,6 +27,14 @@ const RELAXED_CRITERIA = {
 const COLLECTION_MAX_REAL_PYEONG = 40;
 const COLLECTION_LIMIT = 600;
 const DETAIL_LIMIT = 220;
+
+type ListingAction = {
+  favorite: boolean;
+  hidden: boolean;
+  updatedAt: string;
+};
+
+type ListingActions = Record<string, ListingAction>;
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
@@ -120,17 +129,30 @@ async function fetchDefaultData() {
   return response.json() as Promise<CrawlData>;
 }
 
+async function fetchListingActions() {
+  const response = await fetch(`${BASE_PATH}/api/listing-actions`, {
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error("검토 상태 요청 실패");
+  const data = (await response.json()) as { actions?: ListingActions };
+  return data.actions ?? {};
+}
+
 export default function Home() {
   const [data, setData] = useState<CrawlData | null>(null);
   const [selectedRegister, setSelectedRegister] =
     useState<(typeof registerOrder)[number]>("전체");
   const [selectedPass, setSelectedPass] =
     useState<"전체" | (typeof passOrder)[number]>("조건통과");
+  const [selectedReview, setSelectedReview] =
+    useState<(typeof reviewOrder)[number]>("숨김 제외");
   const [sortMode, setSortMode] = useState("newest");
   const [criteria, setCriteria] = useState(DEFAULT_CRITERIA);
+  const [listingActions, setListingActions] = useState<ListingActions>({});
   const [activeImage, setActiveImage] = useState<Record<number, number>>({});
   const [isRecrawling, setIsRecrawling] = useState(false);
   const [recrawlMessage, setRecrawlMessage] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
   const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
@@ -142,9 +164,13 @@ export default function Home() {
 
     async function loadData() {
       const applyDefaultData = async (message?: string) => {
-        const nextData = await fetchDefaultData();
+        const [nextData, nextActions] = await Promise.all([
+          fetchDefaultData(),
+          fetchListingActions().catch(() => ({})),
+        ]);
         if (cancelled) return;
         setData(nextData);
+        setListingActions(nextActions);
         setLoadError("");
         if (message) setRecrawlMessage(message);
       };
@@ -188,14 +214,25 @@ export default function Home() {
 
   const listings = useMemo(() => {
     const filtered = sourceListings.filter((item) => {
+      const action = listingActions[String(item.id)];
+      const reviewMatch =
+        selectedReview === "전체" ||
+        (selectedReview === "숨김 제외" && !action?.hidden) ||
+        (selectedReview === "찜" && action?.favorite && !action?.hidden) ||
+        (selectedReview === "숨김" && action?.hidden);
       const registerMatch =
         selectedRegister === "전체" || item.registerStatus === selectedRegister;
       const passStatus = dynamicPassStatus(item, criteria);
       const passMatch = selectedPass === "전체" || passStatus === selectedPass;
-      return registerMatch && passMatch;
+      return reviewMatch && registerMatch && passMatch;
     });
 
     return [...filtered].sort((a, b) => {
+      const aAction = listingActions[String(a.id)];
+      const bAction = listingActions[String(b.id)];
+      const actionPriority =
+        Number(Boolean(bAction?.favorite)) - Number(Boolean(aAction?.favorite));
+      if (actionPriority) return actionPriority;
       if (sortMode === "newest") return (b.buildYear ?? 0) - (a.buildYear ?? 0);
       if (sortMode === "size") return b.realSize - a.realSize;
       if (sortMode === "rent") return a.monthlyManwon - b.monthlyManwon;
@@ -213,7 +250,15 @@ export default function Home() {
         b.realSize - a.realSize
       );
     });
-  }, [sourceListings, selectedRegister, selectedPass, sortMode, criteria]);
+  }, [
+    sourceListings,
+    selectedRegister,
+    selectedPass,
+    selectedReview,
+    sortMode,
+    criteria,
+    listingActions,
+  ]);
 
   const stats = useMemo(() => {
     const items = sourceListings;
@@ -235,9 +280,24 @@ export default function Home() {
       (sum, item) => sum + (item.roadviews?.length ?? 0),
       0,
     );
+    const favoriteCount = items.filter(
+      (item) => listingActions[String(item.id)]?.favorite,
+    ).length;
+    const hiddenCount = items.filter(
+      (item) => listingActions[String(item.id)]?.hidden,
+    ).length;
 
-    return { confirmed, textOnly, qualified, detail, imageCount, roadviewCount };
-  }, [sourceListings, criteria]);
+    return {
+      confirmed,
+      textOnly,
+      qualified,
+      detail,
+      imageCount,
+      roadviewCount,
+      favoriteCount,
+      hiddenCount,
+    };
+  }, [sourceListings, criteria, listingActions]);
 
   const sliderSummary = useMemo(() => {
     const detailed = sourceListings.filter((item) => item.dataDepth === "상세");
@@ -262,12 +322,57 @@ export default function Home() {
     setCriteria(RELAXED_CRITERIA);
     setSelectedPass("조건통과");
     setSelectedRegister("전체");
+    setSelectedReview("숨김 제외");
   }
 
   function showDefaultResults() {
     setCriteria(DEFAULT_CRITERIA);
     setSelectedPass("조건통과");
     setSelectedRegister("전체");
+    setSelectedReview("숨김 제외");
+  }
+
+  async function saveListingAction(
+    listingId: number,
+    change: Partial<Pick<ListingAction, "favorite" | "hidden">>,
+  ) {
+    const key = String(listingId);
+    const previousActions = listingActions;
+    const current = previousActions[key] ?? {
+      favorite: false,
+      hidden: false,
+      updatedAt: new Date().toISOString(),
+    };
+    const next = {
+      ...current,
+      ...change,
+      updatedAt: new Date().toISOString(),
+    };
+    const optimistic = { ...previousActions };
+
+    if (!next.favorite && !next.hidden) {
+      delete optimistic[key];
+    } else {
+      optimistic[key] = next;
+    }
+
+    setListingActions(optimistic);
+    setActionMessage("서버에 저장 중입니다.");
+
+    try {
+      const response = await fetch(`${BASE_PATH}/api/listing-actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: listingId, ...change }),
+      });
+      if (!response.ok) throw new Error("검토 상태 저장 실패");
+      const data = (await response.json()) as { actions?: ListingActions };
+      setListingActions(data.actions ?? optimistic);
+      setActionMessage("서버에 저장했습니다.");
+    } catch {
+      setListingActions(previousActions);
+      setActionMessage("서버 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    }
   }
 
   async function recrawl() {
@@ -327,7 +432,7 @@ export default function Home() {
           <p className="lead">
             서울 전용 15평 이상 매물 중 보증금 500만원 이하·월세 360만원
             이하인 단기임대와 월세 후보를 함께 검토합니다. 공급면적은 통과
-            기준에 넣지 않고, 재수집 결과는 이 브라우저에 저장됩니다.
+            기준에 넣지 않고, 찜과 숨김 상태는 서버에 저장됩니다.
           </p>
         </div>
         <div className="heroStats" aria-label="수집 요약">
@@ -379,6 +484,7 @@ export default function Home() {
       </section>
 
       {recrawlMessage ? <div className="recrawlNote">{recrawlMessage}</div> : null}
+      {actionMessage ? <div className="actionNote">{actionMessage}</div> : null}
 
       <section className="sliderBand" aria-label="동적 조건">
         <div className="sliderHeader">
@@ -481,6 +587,18 @@ export default function Home() {
       </section>
 
       <section className="filterBand" aria-label="상태 필터">
+        <div className="segmented" aria-label="검토 상태 필터">
+          {reviewOrder.map((status) => (
+            <button
+              key={status}
+              className={selectedReview === status ? "active" : ""}
+              onClick={() => setSelectedReview(status)}
+              type="button"
+            >
+              {status}
+            </button>
+          ))}
+        </div>
         <div className="segmented" aria-label="조건 판정 필터">
           {(["전체", ...passOrder] as const).map((status) => (
             <button
@@ -508,6 +626,14 @@ export default function Home() {
       </section>
 
       <section className="rankStrip" aria-label="검토 현황">
+        <div>
+          <span>찜</span>
+          <strong>{stats.favoriteCount}</strong>
+        </div>
+        <div>
+          <span>숨김</span>
+          <strong>{stats.hiddenCount}</strong>
+        </div>
         <div>
           <span>조건 통과</span>
           <strong>{stats.qualified}</strong>
@@ -548,8 +674,8 @@ export default function Home() {
               {sliderSummary.minReal !== null && sliderSummary.maxReal !== null
                 ? `${sliderSummary.minReal.toFixed(2)}~${sliderSummary.maxReal.toFixed(2)}평`
                 : "아직 충분히 확인되지 않음"}
-              입니다. 전입 필터나 조건 판정 필터가 함께 좁혀져도 0건이 될 수
-              있습니다.
+              입니다. 숨김, 전입 필터, 조건 판정 필터가 함께 좁혀져도 0건이 될
+              수 있습니다.
             </p>
             <div className="emptyActions">
               <button type="button" onClick={showRelaxedResults}>
@@ -567,9 +693,17 @@ export default function Home() {
             listing.images?.[imageIndex] ?? listing.roadviews?.[0]?.image;
           const passStatus = dynamicPassStatus(listing, criteria);
           const currentReasons = dynamicReasons(listing, criteria);
+          const action = listingActions[String(listing.id)];
+          const isFavorite = Boolean(action?.favorite);
+          const isHidden = Boolean(action?.hidden);
 
           return (
-            <article className="listing" key={listing.id}>
+            <article
+              className={`listing${isFavorite ? " favorite" : ""}${
+                isHidden ? " hiddenListing" : ""
+              }`}
+              key={listing.id}
+            >
               <div className="media">
                 {heroImage ? (
                   <img src={heroImage} alt={`${listing.address} 매물 이미지`} />
@@ -590,6 +724,8 @@ export default function Home() {
                     <h2>{listing.title}</h2>
                   </div>
                   <div className="badgeStack">
+                    {isFavorite ? <span className="badge favorite">찜</span> : null}
+                    {isHidden ? <span className="badge hidden">숨김</span> : null}
                     <span className={`badge ${passClass(passStatus)}`}>
                       {passStatus}
                     </span>
@@ -599,6 +735,27 @@ export default function Home() {
                       {listing.registerStatus}
                     </span>
                   </div>
+                </div>
+
+                <div className="reviewActions" aria-label="매물 검토 상태">
+                  <button
+                    className={isFavorite ? "active" : ""}
+                    type="button"
+                    onClick={() =>
+                      saveListingAction(listing.id, { favorite: !isFavorite })
+                    }
+                  >
+                    {isFavorite ? "찜 해제" : "찜"}
+                  </button>
+                  <button
+                    className={isHidden ? "active danger" : "danger"}
+                    type="button"
+                    onClick={() =>
+                      saveListingAction(listing.id, { hidden: !isHidden })
+                    }
+                  >
+                    {isHidden ? "다시 표기" : "더 이상 표기하지 않기"}
+                  </button>
                 </div>
 
                 <div className="metrics">
