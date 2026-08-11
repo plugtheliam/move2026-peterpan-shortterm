@@ -364,9 +364,17 @@ function numberValue(value: unknown) {
 
 function buildListing(item: PeterpanListItem, detail?: Record<string, unknown>, detailImages: string[] = []): Listing {
   const hidx = item.hidx;
-  const sido = stringValue(detail?.sido) || item.location?.address?.sido || "";
-  const sigungu = stringValue(detail?.sigungu) || item.location?.address?.sigungu || "";
-  const dong = stringValue(detail?.dong) || item.location?.address?.dong || "";
+  const detailSido = stringValue(detail?.sido);
+  const listSido = item.location?.address?.sido || "";
+  const shouldUseListAddress =
+    Boolean(listSido) && !COLLECTION_SIDOS.has(detailSido);
+  const sido = shouldUseListAddress ? listSido : detailSido || listSido;
+  const sigungu = shouldUseListAddress
+    ? item.location?.address?.sigungu || stringValue(detail?.sigungu)
+    : stringValue(detail?.sigungu) || item.location?.address?.sigungu || "";
+  const dong = shouldUseListAddress
+    ? item.location?.address?.dong || stringValue(detail?.dong)
+    : stringValue(detail?.dong) || item.location?.address?.dong || "";
   const address = clean([sido, sigungu, dong].filter(Boolean).join(" "));
   const jibunAddress = stringValue(detail?.jibun_address) || address;
   const roadAddress = stringValue(detail?.road_address);
