@@ -5,8 +5,9 @@ import type { CrawlData, Listing } from "./lib/crawler";
 
 const registerOrder = ["전체", "확정 가능", "본문에 가능", "미표시"] as const;
 const passOrder = ["조건통과", "상세미확인", "탈락"] as const;
-const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v8";
+const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v9";
 const LEGACY_LOCAL_KEYS = [
+  "move2026-peterpan-shortterm-recrawl-v8",
   "move2026-peterpan-shortterm-recrawl-v7",
   "move2026-peterpan-shortterm-recrawl-v6",
   "move2026-peterpan-shortterm-recrawl-v5",
@@ -22,6 +23,7 @@ const RELAXED_CRITERIA = {
   maxDepositManwon: 1000,
   maxMonthlyManwon: 500,
 };
+const COLLECTION_MAX_REAL_PYEONG = 40;
 const COLLECTION_LIMIT = 600;
 const DETAIL_LIMIT = 220;
 
@@ -252,23 +254,9 @@ export default function Home() {
       maxReal,
     };
   }, [sourceListings, stats.qualified]);
-  const maxRealSlider = sliderSummary.maxReal
-    ? Math.max(
-        DEFAULT_CRITERIA.minRealPyeong,
-        Math.floor(sliderSummary.maxReal * 10) / 10,
-      )
-    : 25;
-
-  useEffect(() => {
-    if (!sliderSummary.maxReal) return;
-    if (criteria.minRealPyeong <= maxRealSlider) return;
-    queueMicrotask(() =>
-      setCriteria((current) => ({
-        ...current,
-        minRealPyeong: maxRealSlider,
-      })),
-    );
-  }, [criteria.minRealPyeong, maxRealSlider, sliderSummary.maxReal]);
+  const hasAreaDataAboveObservedMax =
+    sliderSummary.maxReal !== null &&
+    criteria.minRealPyeong > sliderSummary.maxReal;
 
   function showRelaxedResults() {
     setCriteria(RELAXED_CRITERIA);
@@ -408,7 +396,8 @@ export default function Home() {
                 : "확인 중"}
             </span>
             <span>
-              현재 데이터에 없는 전용면적 구간은 슬라이더에서 제외했습니다.
+              수집 목표는 전용 최대 {COLLECTION_MAX_REAL_PYEONG}평까지이며,
+              현재 수집 결과에 없는 구간은 0건으로 표시될 수 있습니다.
             </span>
           </div>
           <div className="sliderLive">
@@ -443,9 +432,9 @@ export default function Home() {
             <input
               type="range"
               min="5"
-              max={maxRealSlider}
+              max={COLLECTION_MAX_REAL_PYEONG}
               step="0.1"
-              value={Math.min(criteria.minRealPyeong, maxRealSlider)}
+              value={criteria.minRealPyeong}
               onChange={(event) =>
                 setCriteria((current) => ({
                   ...current,
@@ -540,7 +529,10 @@ export default function Home() {
       <section className="resultHeader">
         <h2>{listings.length.toLocaleString("ko-KR")}건 표시 중</h2>
         <p>
-          조건 통과는 현재 슬라이더 값으로 즉시 다시 계산됩니다. 상세 확인{" "}
+          {hasAreaDataAboveObservedMax
+            ? `현재 상세 수집 데이터는 전용 ${sliderSummary.maxReal?.toFixed(2)}평까지만 확인되어, 그보다 큰 최소면적 조건은 0건이 될 수 있습니다. `
+            : "조건 통과는 현재 슬라이더 값으로 즉시 다시 계산됩니다. "}
+          상세 확인{" "}
           {sliderSummary.detailed}건 중 {sliderSummary.dynamicExcluded}건은 현재
           조건에서 제외됩니다.
         </p>
