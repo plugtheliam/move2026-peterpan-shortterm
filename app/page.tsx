@@ -14,9 +14,19 @@ const regionLabels: Record<(typeof regionOrder)[number], string> = {
   부산광역시: "부산",
   대구광역시: "대구",
 };
-const buildingOrder = ["전체", "오피스텔", "아파트", "빌라/주택", "원/투룸"] as const;
-const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v13";
+const buildingOrder = [
+  "전체",
+  "아파트·오피스텔",
+  "오피스텔",
+  "아파트",
+  "빌라/주택",
+  "원/투룸",
+] as const;
+const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v16";
 const LEGACY_LOCAL_KEYS = [
+  "move2026-peterpan-shortterm-recrawl-v15",
+  "move2026-peterpan-shortterm-recrawl-v14",
+  "move2026-peterpan-shortterm-recrawl-v13",
   "move2026-peterpan-shortterm-recrawl-v12",
   "move2026-peterpan-shortterm-recrawl-v11",
   "move2026-peterpan-shortterm-recrawl-v10",
@@ -38,8 +48,8 @@ const RELAXED_CRITERIA = {
   maxMonthlyManwon: 500,
 };
 const COLLECTION_MAX_REAL_PYEONG = 40;
-const COLLECTION_LIMIT = 1600;
-const DETAIL_LIMIT = 900;
+const COLLECTION_LIMIT = 5000;
+const DETAIL_LIMIT = 2800;
 
 type ListingAction = {
   favorite: boolean;
@@ -420,6 +430,8 @@ export default function Home() {
       const keywordMatch = !keywordText || searchText.includes(keywordText);
       const buildingMatch =
         selectedBuilding === "전체" ||
+        (selectedBuilding === "아파트·오피스텔" &&
+          /오피스텔|아파트/.test(item.buildingType)) ||
         (selectedBuilding === "빌라/주택" &&
           /빌라|주택|다가구|단독|연립|상가주택/.test(item.buildingType)) ||
         (selectedBuilding === "원/투룸" &&
@@ -574,6 +586,26 @@ export default function Home() {
     setSelectedRegions(["부산광역시"]);
     setSelectedBuilding("전체");
     setKeyword("센텀");
+    setSelectedPass("전체");
+    setSelectedRegister("전체");
+    setSelectedReview("숨김 제외");
+    setSortMode("rating");
+  }
+
+  function showSeoulOfficeAptResults() {
+    setSelectedRegions(["서울특별시"]);
+    setSelectedBuilding("아파트·오피스텔");
+    setKeyword("");
+    setSelectedPass("전체");
+    setSelectedRegister("전체");
+    setSelectedReview("숨김 제외");
+    setSortMode("rating");
+  }
+
+  function showGyeonggiOfficeAptResults() {
+    setSelectedRegions(["경기도"]);
+    setSelectedBuilding("아파트·오피스텔");
+    setKeyword("");
     setSelectedPass("전체");
     setSelectedRegister("전체");
     setSelectedReview("숨김 제외");
@@ -779,6 +811,12 @@ export default function Home() {
         </button>
         <button onClick={showRelaxedResults} type="button">
           16평 넓게 보기
+        </button>
+        <button onClick={showSeoulOfficeAptResults} type="button">
+          서울 아파트·오피스텔
+        </button>
+        <button onClick={showGyeonggiOfficeAptResults} type="button">
+          경기 아파트·오피스텔
         </button>
         <button onClick={showHaeundaeResults} type="button">
           해운대 오피스텔
