@@ -120,12 +120,31 @@ export type CrawlData = {
   excluded: Listing[];
 };
 
-const SEOUL_BOUNDS = {
-  minLat: 37.42,
-  maxLat: 37.7,
-  minLon: 126.76,
-  maxLon: 127.18,
-};
+const COLLECTION_REGIONS = [
+  {
+    name: "서울",
+    sido: "서울특별시",
+    bounds: {
+      minLat: 37.42,
+      maxLat: 37.7,
+      minLon: 126.76,
+      maxLon: 127.18,
+    },
+    center: { lat: 37.566628, lng: 126.978038 },
+  },
+  {
+    name: "경기도",
+    sido: "경기도",
+    bounds: {
+      minLat: 36.89,
+      maxLat: 38.31,
+      minLon: 126.37,
+      maxLon: 127.85,
+    },
+    center: { lat: 37.4138, lng: 127.5183 },
+  },
+] as const;
+const COLLECTION_SIDOS = new Set(COLLECTION_REGIONS.map((region) => region.sido));
 const DEFAULT_MAX_DEPOSIT = 5_000_000;
 const DEFAULT_MAX_MONTHLY = 3_600_000;
 const COLLECTION_MAX_DEPOSIT = 10_000_000;
@@ -171,6 +190,7 @@ function unique<T>(items: T[]) {
 type ListUrlOptions = {
   pageIndex: number;
   orderId?: string;
+  region?: (typeof COLLECTION_REGIONS)[number];
   minRealSize?: number;
   maxRealSize?: number;
   contractMode?: ContractMode;
@@ -182,6 +202,7 @@ type ListUrlOptions = {
 function buildListUrl({
   pageIndex,
   orderId,
+  region = COLLECTION_REGIONS[0],
   minRealSize,
   maxRealSize,
   contractMode = "short",
@@ -190,8 +211,8 @@ function buildListUrl({
   buildingTypes = COLLECTION_BUILDING_TYPES,
 }: ListUrlOptions) {
   const filterParts = [
-    `latitude:${SEOUL_BOUNDS.minLat}~${SEOUL_BOUNDS.maxLat}`,
-    `longitude:${SEOUL_BOUNDS.minLon}~${SEOUL_BOUNDS.maxLon}`,
+    `latitude:${region.bounds.minLat}~${region.bounds.maxLat}`,
+    `longitude:${region.bounds.minLon}~${region.bounds.maxLon}`,
     `buildingType;${JSON.stringify(buildingTypes)}`,
     `checkDeposit:0~${maxDeposit}`,
     `checkMonth:0~${maxMonthly}`,
@@ -208,7 +229,7 @@ function buildListUrl({
   const params = new URLSearchParams({
     filter,
     zoomLevel: "14",
-    center: JSON.stringify({ lat: 37.566628, lng: 126.978038 }),
+    center: JSON.stringify(region.center),
     viewMode: "list",
     pageSize: "100",
     pageIndex: String(pageIndex),
@@ -357,7 +378,7 @@ function buildListing(item: PeterpanListItem, detail?: Record<string, unknown>, 
     canRegister === 1 ? "확정 가능" : textRegister ? "본문에 가능" : "미표시";
 
   const excludedReasons: string[] = [];
-  if (sido !== "서울특별시") excludedReasons.push("서울 아님");
+  if (!COLLECTION_SIDOS.has(sido)) excludedReasons.push("수도권 대상지역 아님");
   if (deposit > 5_000_000) excludedReasons.push("보증금 초과");
   if (monthly > 3_600_000) excludedReasons.push("월세 초과");
   if (realSize < 49.58) excludedReasons.push("전용 15평 미만");
@@ -497,20 +518,23 @@ async function collectLargeAreaItems(limit: number) {
   const byId = new Map<number, PeterpanListItem>();
   let totalApiCount = 0;
 
-  for (const buildingType of COLLECTION_BUILDING_TYPES) {
-    for (const contractMode of ["monthly", "short"] as const) {
-      const segment = await collectListItems(Math.min(limit, 300), {
-        minRealSize: COLLECTION_LARGE_REAL_SIZE,
-        maxRealSize: COLLECTION_MAX_REAL_SIZE,
-        contractMode,
-        maxDeposit: COLLECTION_MAX_DEPOSIT,
-        maxMonthly: COLLECTION_MAX_MONTHLY,
-        buildingTypes: [buildingType],
-      });
-      totalApiCount += segment.totalApiCount;
-      for (const item of segment.items) {
-        if (!byId.has(item.hidx)) byId.set(item.hidx, item);
-        if (byId.size >= limit) break;
+  for (const region of COLLECTION_REGIONS) {
+    for (const buildingType of COLLECTION_BUILDING_TYPES) {
+      for (const contractMode of ["monthly", "short"] as const) {
+        const segment = await collectListItems(Math.min(limit, 300), {
+          region,
+          minRealSize: COLLECTION_LARGE_REAL_SIZE,
+          maxRealSize: COLLECTION_MAX_REAL_SIZE,
+          contractMode,
+          maxDeposit: COLLECTION_MAX_DEPOSIT,
+          maxMonthly: COLLECTION_MAX_MONTHLY,
+          buildingTypes: [buildingType],
+        });
+        totalApiCount += segment.totalApiCount;
+        for (const item of segment.items) {
+          if (!byId.has(item.hidx)) byId.set(item.hidx, item);
+          if (byId.size >= limit) break;
+        }
       }
     }
   }
@@ -519,33 +543,69 @@ async function collectLargeAreaItems(limit: number) {
 }
 
 export async function crawlPeterpan(options: { limit?: number; detailLimit?: number } = {}): Promise<CrawlData> {
-  const limit = Math.max(100, Math.min(options.limit ?? 240, 800));
+  const limit = Math.max(100, Math.min(options.limit ?? 240, 1200));
   const detailLimit = Math.max(0, Math.min(options.detailLimit ?? 80, limit));
   const byId = new Map<number, PeterpanListItem>();
 
-  const likelyQualified = await collectListItems(300, {
-    minRealSize: COLLECTION_MIN_REAL_SIZE,
-    maxRealSize: COLLECTION_MAX_REAL_SIZE,
-    contractMode: "all",
-  });
-  const collectionSizePool = await collectListItems(limit, {
-    minRealSize: COLLECTION_MIN_REAL_SIZE,
-    maxRealSize: COLLECTION_MAX_REAL_SIZE,
-    contractMode: "all",
-    maxDeposit: COLLECTION_MAX_DEPOSIT,
-    maxMonthly: COLLECTION_MAX_MONTHLY,
-  });
+  const likelyQualifiedPools = await Promise.all(
+    COLLECTION_REGIONS.map((region) =>
+      collectListItems(300, {
+        region,
+        minRealSize: COLLECTION_MIN_REAL_SIZE,
+        maxRealSize: COLLECTION_MAX_REAL_SIZE,
+        contractMode: "all",
+      }),
+    ),
+  );
+  const likelyQualified = {
+    totalApiCount: Math.max(...likelyQualifiedPools.map((pool) => pool.totalApiCount)),
+    items: likelyQualifiedPools.flatMap((pool) => pool.items),
+  };
+  const collectionSizePools = await Promise.all(
+    COLLECTION_REGIONS.map((region) =>
+      collectListItems(limit, {
+        region,
+        minRealSize: COLLECTION_MIN_REAL_SIZE,
+        maxRealSize: COLLECTION_MAX_REAL_SIZE,
+        contractMode: "all",
+        maxDeposit: COLLECTION_MAX_DEPOSIT,
+        maxMonthly: COLLECTION_MAX_MONTHLY,
+      }),
+    ),
+  );
+  const collectionSizePool = {
+    totalApiCount: Math.max(...collectionSizePools.map((pool) => pool.totalApiCount)),
+    items: collectionSizePools.flatMap((pool) => pool.items),
+  };
   const largeAreaPool = await collectLargeAreaItems(limit);
-  const broadShortPool = await collectListItems(limit, {
-    contractMode: "short",
-    maxDeposit: COLLECTION_MAX_DEPOSIT,
-    maxMonthly: COLLECTION_MAX_MONTHLY,
-  });
-  const broadAllPool = await collectListItems(limit, {
-    contractMode: "all",
-    maxDeposit: COLLECTION_MAX_DEPOSIT,
-    maxMonthly: COLLECTION_MAX_MONTHLY,
-  });
+  const broadShortPools = await Promise.all(
+    COLLECTION_REGIONS.map((region) =>
+      collectListItems(limit, {
+        region,
+        contractMode: "short",
+        maxDeposit: COLLECTION_MAX_DEPOSIT,
+        maxMonthly: COLLECTION_MAX_MONTHLY,
+      }),
+    ),
+  );
+  const broadShortPool = {
+    totalApiCount: Math.max(...broadShortPools.map((pool) => pool.totalApiCount)),
+    items: broadShortPools.flatMap((pool) => pool.items),
+  };
+  const broadAllPools = await Promise.all(
+    COLLECTION_REGIONS.map((region) =>
+      collectListItems(limit, {
+        region,
+        contractMode: "all",
+        maxDeposit: COLLECTION_MAX_DEPOSIT,
+        maxMonthly: COLLECTION_MAX_MONTHLY,
+      }),
+    ),
+  );
+  const broadAllPool = {
+    totalApiCount: Math.max(...broadAllPools.map((pool) => pool.totalApiCount)),
+    items: broadAllPools.flatMap((pool) => pool.items),
+  };
 
   const priorityCandidates = likelyQualified.items.filter((item) => {
     const contractType = item.type?.contract_type;
@@ -566,7 +626,7 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
     const contractType = item.type?.contract_type;
     const realPyeong = item.info?.real_pyeong ?? pyeong(item.info?.real_size);
     return (
-      item.location?.address?.sido === "서울특별시" &&
+      COLLECTION_SIDOS.has(item.location?.address?.sido ?? "") &&
       (contractType === "단기임대" || contractType === "월세") &&
       realPyeong >= COLLECTION_MIN_REAL_PYEONG &&
       realPyeong <= COLLECTION_MAX_REAL_PYEONG &&
@@ -580,7 +640,7 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
       const contractType = item.type?.contract_type;
       const realPyeong = item.info?.real_pyeong ?? pyeong(item.info?.real_size);
       return (
-        item.location?.address?.sido === "서울특별시" &&
+        COLLECTION_SIDOS.has(item.location?.address?.sido ?? "") &&
         (contractType === "단기임대" || contractType === "월세") &&
         realPyeong >= pyeong(COLLECTION_LARGE_REAL_SIZE) &&
         realPyeong <= COLLECTION_MAX_REAL_PYEONG &&
@@ -611,7 +671,9 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
     if (byId.size >= limit) break;
   }
 
-  const rawItems = [...byId.values()].slice(0, limit);
+  const rawItems = [...byId.values()]
+    .filter((item) => COLLECTION_SIDOS.has(item.location?.address?.sido ?? ""))
+    .slice(0, limit);
   const detailIds = new Set(rawItems.slice(0, detailLimit).map((item) => item.hidx));
   const detailMap = new Map<number, { detail?: Record<string, unknown>; images: string[] }>();
 
@@ -652,7 +714,7 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
     source:
       "피터팬 공개 목록 API, 전용 15평 이상 우선 풀, 16평 이상 건물유형별 세그먼트 풀, 슬라이더 완화 후보 풀, 일부 매물 상세 HTML, 카카오 로드뷰 공개 노드 API",
     query: {
-      location: "서울",
+      location: "서울·경기",
       contract: "단기임대 또는 월세",
       maxDepositManwon: 500,
       maxMonthlyManwon: 360,
@@ -662,9 +724,9 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
       rawCollectLimit: limit,
       detailLimit,
       finalFilter:
-        "전용 49.58㎡ 이상, 보증금 500만원 이하, 월세 360만원 이하, 사용승인 2000년 이후, 계약유형 단기임대 또는 월세",
+        "서울·경기, 전용 49.58㎡ 이상, 보증금 500만원 이하, 월세 360만원 이하, 사용승인 2000년 이후, 계약유형 단기임대 또는 월세",
       collectionFilter:
-        "전용 15~40평, 보증금 1000만원 이하, 월세 500만원 이하 후보를 함께 수집하고, 16평 이상은 건물유형별/월세·단기임대별로 별도 수집",
+        "서울·경기 전용 15~40평, 보증금 1000만원 이하, 월세 500만원 이하 후보를 함께 수집하고, 16평 이상은 지역별/건물유형별/월세·단기임대별로 별도 수집",
       note: "공급면적은 통과 판정에 사용하지 않음",
     },
     totalApiCount: Math.max(

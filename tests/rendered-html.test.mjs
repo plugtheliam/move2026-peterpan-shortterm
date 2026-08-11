@@ -28,7 +28,13 @@ async function render() {
 function isDynamicPass(listing, criteria) {
   const contractType = String(listing.rawSignals?.contractType ?? "");
   if (listing.dataDepth !== "상세") return false;
-  if (listing.address && !listing.address.startsWith("서울특별시")) return false;
+  if (
+    listing.address &&
+    !listing.address.startsWith("서울특별시") &&
+    !listing.address.startsWith("경기도")
+  ) {
+    return false;
+  }
   if (contractType !== "단기임대" && contractType !== "월세") return false;
   if ((listing.realPyeong ?? 0) < criteria.minRealPyeong) return false;
   if (listing.depositManwon > criteria.maxDepositManwon) return false;
@@ -44,7 +50,7 @@ test("server-renders the Move 2026 shell", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /Move 2026 서울 단기임대 검토판/);
+  assert.match(html, /Move 2026 서울·경기 단기임대 검토판/);
   assert.match(html, /매물 자료를 불러오는 중입니다/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
 });
@@ -99,15 +105,29 @@ test("ships a broad slider-ready Peterpan data set", async () => {
       (contractType === "단기임대" || contractType === "월세")
     );
   });
+  const gyeonggiListings = data.allListings.filter((listing) =>
+    listing.address?.startsWith("경기도"),
+  );
+  const gyeonggiPass = defaultPass.filter((listing) =>
+    listing.address?.startsWith("경기도"),
+  );
+  const outsideTargetRegion = data.allListings.filter(
+    (listing) =>
+      !listing.address?.startsWith("서울특별시") &&
+      !listing.address?.startsWith("경기도"),
+  );
 
-  assert.equal(data.collectedCount, 600);
-  assert.equal(detailed.length, 360);
+  assert.ok(data.collectedCount >= 980);
+  assert.equal(detailed.length, 600);
   assert.ok(defaultPass.length >= 100);
-  assert.ok(expandedBudgetPass.length >= 150);
-  assert.ok(expandedLargePass.length >= 120);
+  assert.ok(expandedBudgetPass.length >= 300);
+  assert.ok(expandedLargePass.length >= 250);
   assert.ok(relaxedPass.length >= expandedBudgetPass.length);
-  assert.ok(sliderLargeCandidates.length >= 150);
+  assert.ok(sliderLargeCandidates.length >= 300);
   assert.ok(Math.max(...sliderLargeCandidates.map((listing) => listing.realPyeong)) >= 30);
+  assert.ok(gyeonggiListings.length >= 150);
+  assert.ok(gyeonggiPass.length >= 40);
+  assert.equal(outsideTargetRegion.length, 0);
   assert.equal(data.query.collectionMaxDepositManwon, 1000);
   assert.equal(data.query.collectionMaxMonthlyManwon, 500);
   assert.equal(data.query.collectionMaxRealPyeong, 40);
@@ -118,13 +138,14 @@ test("ships a broad slider-ready Peterpan data set", async () => {
 test("ships local subway reference data for station proximity scoring", async () => {
   const stations = JSON.parse(
     await readFile(
-      new URL("../app/data/seoul-subway-stations.json", import.meta.url),
+      new URL("../app/data/capital-area-subway-stations.json", import.meta.url),
       "utf8",
     ),
   );
 
-  assert.ok(stations.length >= 250);
+  assert.ok(stations.length >= 450);
   assert.ok(stations.some((station) => station.name === "강남"));
+  assert.ok(stations.some((station) => station.name === "가능"));
   assert.ok(stations.every((station) => Number.isFinite(station.lat)));
   assert.ok(stations.every((station) => Number.isFinite(station.lon)));
 });

@@ -10,8 +10,8 @@ export async function POST(request: Request) {
   };
 
   const data = await crawlPeterpan({
-    limit: body.limit ?? 600,
-    detailLimit: body.detailLimit ?? 360,
+    limit: body.limit ?? 1000,
+    detailLimit: body.detailLimit ?? 600,
   });
 
   return Response.json(data, {

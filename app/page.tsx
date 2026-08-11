@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { CrawlData, Listing } from "./lib/crawler";
-import subwayStations from "./data/seoul-subway-stations.json";
+import subwayStations from "./data/capital-area-subway-stations.json";
 
 const registerOrder = ["전체", "확정 가능", "본문에 가능", "미표시"] as const;
 const passOrder = ["조건통과", "상세미확인", "탈락"] as const;
 const reviewOrder = ["숨김 제외", "찜", "숨김", "전체"] as const;
-const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v10";
+const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v11";
 const LEGACY_LOCAL_KEYS = [
+  "move2026-peterpan-shortterm-recrawl-v10",
   "move2026-peterpan-shortterm-recrawl-v9",
   "move2026-peterpan-shortterm-recrawl-v8",
   "move2026-peterpan-shortterm-recrawl-v7",
@@ -27,8 +28,8 @@ const RELAXED_CRITERIA = {
   maxMonthlyManwon: 500,
 };
 const COLLECTION_MAX_REAL_PYEONG = 40;
-const COLLECTION_LIMIT = 600;
-const DETAIL_LIMIT = 360;
+const COLLECTION_LIMIT = 1000;
+const DETAIL_LIMIT = 600;
 
 type ListingAction = {
   favorite: boolean;
@@ -229,8 +230,12 @@ function dynamicReasons(listing: Listing, criteria: typeof DEFAULT_CRITERIA) {
   const reasons: string[] = [];
   const contractType = String(listing.rawSignals?.contractType ?? "");
 
-  if (listing.address && !listing.address.startsWith("서울특별시")) {
-    reasons.push("서울 아님");
+  if (
+    listing.address &&
+    !listing.address.startsWith("서울특별시") &&
+    !listing.address.startsWith("경기도")
+  ) {
+    reasons.push("수도권 대상지역 아님");
   }
   if (contractType !== "단기임대" && contractType !== "월세") {
     reasons.push("월세/단기임대 아님");
@@ -603,10 +608,10 @@ export default function Home() {
     <main>
       <section className="hero">
         <div>
-          <p className="eyebrow">Peterpanz Seoul Short-Term Scout</p>
-          <h1>서울 단기임대 원천 데이터 200+ 검토판</h1>
+          <p className="eyebrow">Peterpanz Capital Area Short-Term Scout</p>
+          <h1>서울·경기 단기임대 원천 데이터 검토판</h1>
           <p className="lead">
-            서울 전용 15평 이상 매물 중 보증금 500만원 이하·월세 360만원
+            서울·경기 전용 15평 이상 매물 중 보증금 500만원 이하·월세 360만원
             이하인 단기임대와 월세 후보를 함께 검토합니다. 공급면적은 통과
             기준에 넣지 않고, 찜과 숨김 상태는 서버에 저장됩니다.
           </p>
