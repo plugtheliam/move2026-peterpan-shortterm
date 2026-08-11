@@ -132,21 +132,38 @@ test("ships a broad slider-ready Peterpan data set", async () => {
   const daeguPass = defaultPass.filter((listing) =>
     listing.address?.startsWith("대구광역시"),
   );
+  const busanOfficeApt = busanListings.filter((listing) =>
+    /오피스텔|아파트/.test(listing.buildingType),
+  );
+  const haeundaeOfficeApt = busanOfficeApt.filter((listing) =>
+    /센텀|해운대|우동|재송동|중동|좌동/.test(
+      [
+        listing.address,
+        listing.jibunAddress,
+        listing.title,
+      ].join(" "),
+    ),
+  );
 
-  assert.ok(data.collectedCount >= 1200);
-  assert.ok(detailed.length >= 780);
-  assert.ok(defaultPass.length >= 100);
-  assert.ok(expandedBudgetPass.length >= 600);
-  assert.ok(expandedLargePass.length >= 450);
+  assert.ok(data.collectedCount >= 1500);
+  assert.ok(detailed.length >= 840);
+  assert.ok(defaultPass.length >= 300);
+  assert.ok(expandedBudgetPass.length >= 500);
+  assert.ok(expandedLargePass.length >= 250);
   assert.ok(relaxedPass.length >= expandedBudgetPass.length);
-  assert.ok(sliderLargeCandidates.length >= 580);
+  assert.ok(sliderLargeCandidates.length >= 350);
   assert.ok(Math.max(...sliderLargeCandidates.map((listing) => listing.realPyeong)) >= 30);
   assert.ok(gyeonggiListings.length >= 150);
   assert.ok(gyeonggiPass.length >= 40);
-  assert.ok(busanListings.length >= 40);
-  assert.ok(daeguListings.length >= 20);
-  assert.ok(busanPass.length >= 20);
+  assert.ok(busanListings.length >= 400);
+  assert.ok(daeguListings.length >= 450);
+  assert.ok(busanPass.length >= 50);
   assert.ok(daeguPass.length >= 100);
+  assert.ok(busanOfficeApt.length >= 300);
+  assert.ok(haeundaeOfficeApt.length >= 50);
+  assert.ok(
+    haeundaeOfficeApt.filter((listing) => listing.dataDepth === "상세").length >= 45,
+  );
   assert.equal(outsideTargetRegion.length, 0);
   assert.equal(data.query.collectionMaxDepositManwon, 1000);
   assert.equal(data.query.collectionMaxMonthlyManwon, 500);

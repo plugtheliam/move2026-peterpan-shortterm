@@ -355,6 +355,30 @@ h1 {
   font-weight: 700;
 }
 
+.keywordSearch {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.keywordSearch span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.keywordSearch input {
+  border: 0;
+  font: inherit;
+  min-width: 180px;
+  outline: 0;
+}
+
 select {
   background: var(--panel);
   border: 1px solid var(--line);

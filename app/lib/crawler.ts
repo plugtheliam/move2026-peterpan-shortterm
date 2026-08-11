@@ -177,6 +177,31 @@ const COLLECTION_MAX_REAL_SIZE = 132.24;
 const COLLECTION_MIN_REAL_PYEONG = 15;
 const COLLECTION_MAX_REAL_PYEONG = 40;
 const COLLECTION_BUILDING_TYPES = ["빌라/주택", "오피스텔", "아파트", "원/투룸"] as const;
+const PRIORITY_BUILDING_TYPES = ["오피스텔", "아파트"] as const;
+const FOCUS_AREAS = [
+  {
+    name: "부산 센텀역",
+    region: COLLECTION_REGIONS[2],
+    bounds: {
+      minLat: 35.155,
+      maxLat: 35.185,
+      minLon: 129.105,
+      maxLon: 129.15,
+    },
+    center: { lat: 35.1689, lng: 129.1316 },
+  },
+  {
+    name: "부산 해운대역",
+    region: COLLECTION_REGIONS[2],
+    bounds: {
+      minLat: 35.15,
+      maxLat: 35.176,
+      minLon: 129.14,
+      maxLon: 129.185,
+    },
+    center: { lat: 35.1631, lng: 129.158 },
+  },
+] as const;
 type ContractMode = "short" | "monthly" | "all";
 
 const BASE_HEADERS = {
@@ -213,6 +238,8 @@ type ListUrlOptions = {
   pageIndex: number;
   orderId?: string;
   region?: (typeof COLLECTION_REGIONS)[number];
+  bounds?: (typeof COLLECTION_REGIONS)[number]["bounds"];
+  center?: (typeof COLLECTION_REGIONS)[number]["center"];
   minRealSize?: number;
   maxRealSize?: number;
   contractMode?: ContractMode;
@@ -225,6 +252,8 @@ function buildListUrl({
   pageIndex,
   orderId,
   region = COLLECTION_REGIONS[0],
+  bounds = region.bounds,
+  center = region.center,
   minRealSize,
   maxRealSize,
   contractMode = "short",
@@ -233,8 +262,8 @@ function buildListUrl({
   buildingTypes = COLLECTION_BUILDING_TYPES,
 }: ListUrlOptions) {
   const filterParts = [
-    `latitude:${region.bounds.minLat}~${region.bounds.maxLat}`,
-    `longitude:${region.bounds.minLon}~${region.bounds.maxLon}`,
+    `latitude:${bounds.minLat}~${bounds.maxLat}`,
+    `longitude:${bounds.minLon}~${bounds.maxLon}`,
     `buildingType;${JSON.stringify(buildingTypes)}`,
     `checkDeposit:0~${maxDeposit}`,
     `checkMonth:0~${maxMonthly}`,
@@ -251,7 +280,7 @@ function buildListUrl({
   const params = new URLSearchParams({
     filter,
     zoomLevel: "14",
-    center: JSON.stringify(region.center),
+    center: JSON.stringify(center),
     viewMode: "list",
     pageSize: "100",
     pageIndex: String(pageIndex),
@@ -572,6 +601,58 @@ async function collectLargeAreaItems(limit: number) {
   return { totalApiCount, items: [...byId.values()].slice(0, limit) };
 }
 
+async function collectPriorityBuildingItems(limit: number) {
+  const byId = new Map<number, PeterpanListItem>();
+  let totalApiCount = 0;
+
+  for (const region of COLLECTION_REGIONS) {
+    for (const contractMode of ["monthly", "short"] as const) {
+      const segment = await collectListItems(Math.min(limit, 300), {
+        region,
+        minRealSize: COLLECTION_MIN_REAL_SIZE,
+        maxRealSize: COLLECTION_MAX_REAL_SIZE,
+        contractMode,
+        maxDeposit: COLLECTION_MAX_DEPOSIT,
+        maxMonthly: COLLECTION_MAX_MONTHLY,
+        buildingTypes: PRIORITY_BUILDING_TYPES,
+      });
+      totalApiCount += segment.totalApiCount;
+      for (const item of segment.items) {
+        if (!byId.has(item.hidx)) byId.set(item.hidx, item);
+        if (byId.size >= limit) break;
+      }
+    }
+  }
+
+  return { totalApiCount, items: [...byId.values()].slice(0, limit) };
+}
+
+async function collectFocusAreaItems(limit: number) {
+  const byId = new Map<number, PeterpanListItem>();
+  let totalApiCount = 0;
+
+  for (const area of FOCUS_AREAS) {
+    for (const contractMode of ["monthly", "short", "all"] as const) {
+      const segment = await collectListItems(Math.min(limit, 200), {
+        region: area.region,
+        bounds: area.bounds,
+        center: area.center,
+        contractMode,
+        maxDeposit: COLLECTION_MAX_DEPOSIT,
+        maxMonthly: COLLECTION_MAX_MONTHLY,
+        buildingTypes: PRIORITY_BUILDING_TYPES,
+      });
+      totalApiCount += segment.totalApiCount;
+      for (const item of segment.items) {
+        if (!byId.has(item.hidx)) byId.set(item.hidx, item);
+        if (byId.size >= limit) break;
+      }
+    }
+  }
+
+  return { totalApiCount, items: [...byId.values()].slice(0, limit) };
+}
+
 export async function crawlPeterpan(options: { limit?: number; detailLimit?: number } = {}): Promise<CrawlData> {
   const limit = Math.max(100, Math.min(options.limit ?? 240, 2000));
   const detailLimit = Math.max(0, Math.min(options.detailLimit ?? 80, limit));
@@ -608,6 +689,8 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
     items: collectionSizePools.flatMap((pool) => pool.items),
   };
   const largeAreaPool = await collectLargeAreaItems(limit);
+  const priorityBuildingPool = await collectPriorityBuildingItems(limit);
+  const focusAreaPool = await collectFocusAreaItems(limit);
   const broadShortPools = await Promise.all(
     COLLECTION_REGIONS.map((region) =>
       collectListItems(limit, {
@@ -648,6 +731,8 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
   });
 
   const sliderReachCandidates = [
+    ...focusAreaPool.items,
+    ...priorityBuildingPool.items,
     ...largeAreaPool.items,
     ...collectionSizePool.items,
     ...broadShortPool.items,
@@ -684,7 +769,32 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
       return bReal - aReal;
     });
 
+  const focusCandidates = focusAreaPool.items.filter((item) => {
+    const contractType = item.type?.contract_type;
+    return (
+      COLLECTION_SIDOS.has(item.location?.address?.sido ?? "") &&
+      (contractType === "단기임대" || contractType === "월세") &&
+      (item.price?.deposit ?? 0) <= COLLECTION_MAX_DEPOSIT &&
+      (item.price?.monthly_fee ?? 0) <= COLLECTION_MAX_MONTHLY
+    );
+  });
+
+  const priorityBuildingCandidates = priorityBuildingPool.items.filter((item) => {
+    const contractType = item.type?.contract_type;
+    const realPyeong = item.info?.real_pyeong ?? pyeong(item.info?.real_size);
+    return (
+      COLLECTION_SIDOS.has(item.location?.address?.sido ?? "") &&
+      (contractType === "단기임대" || contractType === "월세") &&
+      realPyeong >= COLLECTION_MIN_REAL_PYEONG &&
+      realPyeong <= COLLECTION_MAX_REAL_PYEONG &&
+      (item.price?.deposit ?? 0) <= COLLECTION_MAX_DEPOSIT &&
+      (item.price?.monthly_fee ?? 0) <= COLLECTION_MAX_MONTHLY
+    );
+  });
+
   for (const item of priorityCandidates) byId.set(item.hidx, item);
+  for (const item of focusCandidates) byId.set(item.hidx, item);
+  for (const item of priorityBuildingCandidates) byId.set(item.hidx, item);
   for (const item of largeAreaCandidates) byId.set(item.hidx, item);
   for (const item of sliderReachCandidates) byId.set(item.hidx, item);
   for (const item of likelyQualified.items) byId.set(item.hidx, item);
@@ -756,13 +866,15 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
       finalFilter:
         "서울·경기·부산·대구, 전용 49.58㎡ 이상, 보증금 500만원 이하, 월세 360만원 이하, 사용승인 2000년 이후, 계약유형 단기임대 또는 월세",
       collectionFilter:
-        "서울·경기·부산·대구 전용 15~40평, 보증금 1000만원 이하, 월세 500만원 이하 후보를 함께 수집하고, 16평 이상은 지역별/건물유형별/월세·단기임대별로 별도 수집",
+        "서울·경기·부산·대구 전용 15~40평, 보증금 1000만원 이하, 월세 500만원 이하 후보를 함께 수집하고, 16평 이상은 지역별/건물유형별/월세·단기임대별로 별도 수집하며 부산 센텀역·해운대역 주변 오피스텔/아파트를 우선 수집",
       note: "공급면적은 통과 판정에 사용하지 않음",
     },
     totalApiCount: Math.max(
       likelyQualified.totalApiCount,
       collectionSizePool.totalApiCount,
       largeAreaPool.totalApiCount,
+      priorityBuildingPool.totalApiCount,
+      focusAreaPool.totalApiCount,
       broadShortPool.totalApiCount,
       broadAllPool.totalApiCount,
     ),

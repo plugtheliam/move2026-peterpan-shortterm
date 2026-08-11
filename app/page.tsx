@@ -14,8 +14,10 @@ const regionLabels: Record<(typeof regionOrder)[number], string> = {
   부산광역시: "부산",
   대구광역시: "대구",
 };
-const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v12";
+const buildingOrder = ["전체", "오피스텔", "아파트", "빌라/주택", "원/투룸"] as const;
+const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v13";
 const LEGACY_LOCAL_KEYS = [
+  "move2026-peterpan-shortterm-recrawl-v12",
   "move2026-peterpan-shortterm-recrawl-v11",
   "move2026-peterpan-shortterm-recrawl-v10",
   "move2026-peterpan-shortterm-recrawl-v9",
@@ -326,6 +328,9 @@ export default function Home() {
   const [selectedRegions, setSelectedRegions] = useState<string[]>([
     ...regionOrder,
   ]);
+  const [selectedBuilding, setSelectedBuilding] =
+    useState<(typeof buildingOrder)[number]>("전체");
+  const [keyword, setKeyword] = useState("");
   const [listingActions, setListingActions] = useState<ListingActions>({});
   const [activeImage, setActiveImage] = useState<Record<number, number>>({});
   const [isRecrawling, setIsRecrawling] = useState(false);
@@ -400,6 +405,26 @@ export default function Home() {
   const listings = useMemo(() => {
     const filtered = regionListings.filter((item) => {
       const action = listingActions[String(item.id)];
+      const keywordText = keyword.trim().toLowerCase();
+      const searchText = [
+        item.address,
+        item.jibunAddress,
+        item.roadAddress,
+        item.title,
+        item.summary,
+        item.buildingType,
+        item.roomType,
+      ]
+        .join(" ")
+        .toLowerCase();
+      const keywordMatch = !keywordText || searchText.includes(keywordText);
+      const buildingMatch =
+        selectedBuilding === "전체" ||
+        (selectedBuilding === "빌라/주택" &&
+          /빌라|주택|다가구|단독|연립|상가주택/.test(item.buildingType)) ||
+        (selectedBuilding === "원/투룸" &&
+          /원룸|투룸|원\/투룸/.test(`${item.buildingType} ${item.roomType}`)) ||
+        item.buildingType.includes(selectedBuilding);
       const reviewMatch =
         selectedReview === "전체" ||
         (selectedReview === "숨김 제외" && !action?.hidden) ||
@@ -409,7 +434,7 @@ export default function Home() {
         selectedRegister === "전체" || item.registerStatus === selectedRegister;
       const passStatus = dynamicPassStatus(item, criteria);
       const passMatch = selectedPass === "전체" || passStatus === selectedPass;
-      return reviewMatch && registerMatch && passMatch;
+      return keywordMatch && buildingMatch && reviewMatch && registerMatch && passMatch;
     });
 
     return [...filtered].sort((a, b) => {
@@ -443,9 +468,11 @@ export default function Home() {
     selectedRegister,
     selectedPass,
     selectedReview,
+    selectedBuilding,
     sortMode,
     criteria,
     listingActions,
+    keyword,
   ]);
 
   const stats = useMemo(() => {
@@ -508,6 +535,8 @@ export default function Home() {
 
   function showRelaxedResults() {
     setSelectedRegions([...regionOrder]);
+    setSelectedBuilding("전체");
+    setKeyword("");
     setCriteria(RELAXED_CRITERIA);
     setSelectedPass("조건통과");
     setSelectedRegister("전체");
@@ -516,6 +545,8 @@ export default function Home() {
 
   function showDefaultResults() {
     setSelectedRegions([...regionOrder]);
+    setSelectedBuilding("전체");
+    setKeyword("");
     setCriteria(DEFAULT_CRITERIA);
     setSelectedPass("조건통과");
     setSelectedRegister("전체");
@@ -526,6 +557,26 @@ export default function Home() {
     setSelectedReview("찜");
     setSelectedPass("전체");
     setSelectedRegister("전체");
+    setSortMode("rating");
+  }
+
+  function showHaeundaeResults() {
+    setSelectedRegions(["부산광역시"]);
+    setSelectedBuilding("오피스텔");
+    setKeyword("해운대");
+    setSelectedPass("전체");
+    setSelectedRegister("전체");
+    setSelectedReview("숨김 제외");
+    setSortMode("rating");
+  }
+
+  function showCentumResults() {
+    setSelectedRegions(["부산광역시"]);
+    setSelectedBuilding("전체");
+    setKeyword("센텀");
+    setSelectedPass("전체");
+    setSelectedRegister("전체");
+    setSelectedReview("숨김 제외");
     setSortMode("rating");
   }
 
@@ -729,6 +780,12 @@ export default function Home() {
         <button onClick={showRelaxedResults} type="button">
           16평 넓게 보기
         </button>
+        <button onClick={showHaeundaeResults} type="button">
+          해운대 오피스텔
+        </button>
+        <button onClick={showCentumResults} type="button">
+          센텀 검색
+        </button>
       </section>
 
       <section className="sliderBand" aria-label="동적 조건">
@@ -844,6 +901,27 @@ export default function Home() {
             </button>
           ))}
         </div>
+        <div className="segmented buildingSegmented" aria-label="건물유형 필터">
+          {buildingOrder.map((building) => (
+            <button
+              key={building}
+              className={selectedBuilding === building ? "active" : ""}
+              onClick={() => setSelectedBuilding(building)}
+              type="button"
+            >
+              {building}
+            </button>
+          ))}
+        </div>
+        <label className="keywordSearch">
+          <span>검색</span>
+          <input
+            aria-label="주소, 역, 제목 검색"
+            placeholder="해운대, 센텀, 우동..."
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+          />
+        </label>
         <div className="segmented" aria-label="검토 상태 필터">
           {reviewOrder.map((status) => (
             <button
