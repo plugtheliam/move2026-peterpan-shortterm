@@ -2,13 +2,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { CrawlData, Listing } from "./lib/crawler";
-import subwayStations from "./data/capital-area-subway-stations.json";
+import subwayStations from "./data/korea-subway-stations.json";
 
 const registerOrder = ["전체", "확정 가능", "본문에 가능", "미표시"] as const;
 const passOrder = ["조건통과", "상세미확인", "탈락"] as const;
 const reviewOrder = ["숨김 제외", "찜", "숨김", "전체"] as const;
-const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v11";
+const regionOrder = ["서울특별시", "경기도", "부산광역시", "대구광역시"] as const;
+const regionLabels: Record<(typeof regionOrder)[number], string> = {
+  서울특별시: "서울",
+  경기도: "경기",
+  부산광역시: "부산",
+  대구광역시: "대구",
+};
+const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v12";
 const LEGACY_LOCAL_KEYS = [
+  "move2026-peterpan-shortterm-recrawl-v11",
   "move2026-peterpan-shortterm-recrawl-v10",
   "move2026-peterpan-shortterm-recrawl-v9",
   "move2026-peterpan-shortterm-recrawl-v8",
@@ -28,8 +36,8 @@ const RELAXED_CRITERIA = {
   maxMonthlyManwon: 500,
 };
 const COLLECTION_MAX_REAL_PYEONG = 40;
-const COLLECTION_LIMIT = 1000;
-const DETAIL_LIMIT = 600;
+const COLLECTION_LIMIT = 1600;
+const DETAIL_LIMIT = 900;
 
 type ListingAction = {
   favorite: boolean;
@@ -233,9 +241,11 @@ function dynamicReasons(listing: Listing, criteria: typeof DEFAULT_CRITERIA) {
   if (
     listing.address &&
     !listing.address.startsWith("서울특별시") &&
-    !listing.address.startsWith("경기도")
+    !listing.address.startsWith("경기도") &&
+    !listing.address.startsWith("부산광역시") &&
+    !listing.address.startsWith("대구광역시")
   ) {
-    reasons.push("수도권 대상지역 아님");
+    reasons.push("대상지역 아님");
   }
   if (contractType !== "단기임대" && contractType !== "월세") {
     reasons.push("월세/단기임대 아님");
@@ -313,6 +323,9 @@ export default function Home() {
     useState<(typeof reviewOrder)[number]>("숨김 제외");
   const [sortMode, setSortMode] = useState("newest");
   const [criteria, setCriteria] = useState(DEFAULT_CRITERIA);
+  const [selectedRegions, setSelectedRegions] = useState<string[]>([
+    ...regionOrder,
+  ]);
   const [listingActions, setListingActions] = useState<ListingActions>({});
   const [activeImage, setActiveImage] = useState<Record<number, number>>({});
   const [isRecrawling, setIsRecrawling] = useState(false);
@@ -376,9 +389,16 @@ export default function Home() {
   }, []);
 
   const sourceListings = useMemo(() => getSourceListings(data), [data]);
+  const regionListings = useMemo(() => {
+    const selected = new Set(selectedRegions);
+    return sourceListings.filter((item) => {
+      const sido = item.address.split(" ")[0];
+      return selected.has(sido);
+    });
+  }, [sourceListings, selectedRegions]);
 
   const listings = useMemo(() => {
-    const filtered = sourceListings.filter((item) => {
+    const filtered = regionListings.filter((item) => {
       const action = listingActions[String(item.id)];
       const reviewMatch =
         selectedReview === "전체" ||
@@ -419,7 +439,7 @@ export default function Home() {
       );
     });
   }, [
-    sourceListings,
+    regionListings,
     selectedRegister,
     selectedPass,
     selectedReview,
@@ -429,7 +449,7 @@ export default function Home() {
   ]);
 
   const stats = useMemo(() => {
-    const items = sourceListings;
+    const items = regionListings;
     const confirmed = items.filter(
       (item) => item.registerStatus === "확정 가능",
     ).length;
@@ -465,10 +485,10 @@ export default function Home() {
       favoriteCount,
       hiddenCount,
     };
-  }, [sourceListings, criteria, listingActions]);
+  }, [regionListings, criteria, listingActions]);
 
   const sliderSummary = useMemo(() => {
-    const detailed = sourceListings.filter((item) => item.dataDepth === "상세");
+    const detailed = regionListings.filter((item) => item.dataDepth === "상세");
     const dynamicExcluded = detailed.length - stats.qualified;
     const realValues = detailed
       .map((item) => item.realPyeong)
@@ -481,12 +501,13 @@ export default function Home() {
       minReal,
       maxReal,
     };
-  }, [sourceListings, stats.qualified]);
+  }, [regionListings, stats.qualified]);
   const hasAreaDataAboveObservedMax =
     sliderSummary.maxReal !== null &&
     criteria.minRealPyeong > sliderSummary.maxReal;
 
   function showRelaxedResults() {
+    setSelectedRegions([...regionOrder]);
     setCriteria(RELAXED_CRITERIA);
     setSelectedPass("조건통과");
     setSelectedRegister("전체");
@@ -494,6 +515,7 @@ export default function Home() {
   }
 
   function showDefaultResults() {
+    setSelectedRegions([...regionOrder]);
     setCriteria(DEFAULT_CRITERIA);
     setSelectedPass("조건통과");
     setSelectedRegister("전체");
@@ -511,6 +533,17 @@ export default function Home() {
     setSelectedReview("숨김");
     setSelectedPass("전체");
     setSelectedRegister("전체");
+  }
+
+  function toggleRegion(region: (typeof regionOrder)[number]) {
+    setSelectedRegions((current) => {
+      if (current.includes(region)) {
+        return current.length === 1
+          ? current
+          : current.filter((item) => item !== region);
+      }
+      return regionOrder.filter((item) => [...current, region].includes(item));
+    });
   }
 
   async function saveListingAction(
@@ -608,12 +641,13 @@ export default function Home() {
     <main>
       <section className="hero">
         <div>
-          <p className="eyebrow">Peterpanz Capital Area Short-Term Scout</p>
-          <h1>서울·경기 단기임대 원천 데이터 검토판</h1>
+          <p className="eyebrow">Peterpanz Target Region Short-Term Scout</p>
+          <h1>서울·경기·부산·대구 단기임대 검토판</h1>
           <p className="lead">
-            서울·경기 전용 15평 이상 매물 중 보증금 500만원 이하·월세 360만원
-            이하인 단기임대와 월세 후보를 함께 검토합니다. 공급면적은 통과
-            기준에 넣지 않고, 찜과 숨김 상태는 서버에 저장됩니다.
+            서울·경기·부산·대구 전용 15평 이상 매물 중 보증금 500만원
+            이하·월세 360만원 이하인 단기임대와 월세 후보를 함께 검토합니다.
+            공급면적은 통과 기준에 넣지 않고, 찜과 숨김 상태는 서버에
+            저장됩니다.
           </p>
         </div>
         <div className="heroStats" aria-label="수집 요약">
@@ -798,6 +832,18 @@ export default function Home() {
       </section>
 
       <section className="filterBand" aria-label="상태 필터">
+        <div className="segmented regionSegmented" aria-label="지역 필터">
+          {regionOrder.map((region) => (
+            <button
+              key={region}
+              className={selectedRegions.includes(region) ? "active" : ""}
+              onClick={() => toggleRegion(region)}
+              type="button"
+            >
+              {regionLabels[region]}
+            </button>
+          ))}
+        </div>
         <div className="segmented" aria-label="검토 상태 필터">
           {reviewOrder.map((status) => (
             <button
@@ -846,7 +892,7 @@ export default function Home() {
           <strong>{stats.hiddenCount}</strong>
         </div>
         <div>
-          <span>조건 통과</span>
+          <span>선택지역 조건 통과</span>
           <strong>{stats.qualified}</strong>
         </div>
         <div>

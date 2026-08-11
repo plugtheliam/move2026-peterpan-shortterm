@@ -143,6 +143,28 @@ const COLLECTION_REGIONS = [
     },
     center: { lat: 37.4138, lng: 127.5183 },
   },
+  {
+    name: "부산",
+    sido: "부산광역시",
+    bounds: {
+      minLat: 35.03,
+      maxLat: 35.4,
+      minLon: 128.75,
+      maxLon: 129.37,
+    },
+    center: { lat: 35.1796, lng: 129.0756 },
+  },
+  {
+    name: "대구",
+    sido: "대구광역시",
+    bounds: {
+      minLat: 35.75,
+      maxLat: 36.03,
+      minLon: 128.35,
+      maxLon: 128.8,
+    },
+    center: { lat: 35.8714, lng: 128.6014 },
+  },
 ] as const;
 const COLLECTION_SIDOS = new Set(COLLECTION_REGIONS.map((region) => region.sido));
 const DEFAULT_MAX_DEPOSIT = 5_000_000;
@@ -378,7 +400,7 @@ function buildListing(item: PeterpanListItem, detail?: Record<string, unknown>, 
     canRegister === 1 ? "확정 가능" : textRegister ? "본문에 가능" : "미표시";
 
   const excludedReasons: string[] = [];
-  if (!COLLECTION_SIDOS.has(sido)) excludedReasons.push("수도권 대상지역 아님");
+  if (!COLLECTION_SIDOS.has(sido)) excludedReasons.push("대상지역 아님");
   if (deposit > 5_000_000) excludedReasons.push("보증금 초과");
   if (monthly > 3_600_000) excludedReasons.push("월세 초과");
   if (realSize < 49.58) excludedReasons.push("전용 15평 미만");
@@ -543,7 +565,7 @@ async function collectLargeAreaItems(limit: number) {
 }
 
 export async function crawlPeterpan(options: { limit?: number; detailLimit?: number } = {}): Promise<CrawlData> {
-  const limit = Math.max(100, Math.min(options.limit ?? 240, 1200));
+  const limit = Math.max(100, Math.min(options.limit ?? 240, 2000));
   const detailLimit = Math.max(0, Math.min(options.detailLimit ?? 80, limit));
   const byId = new Map<number, PeterpanListItem>();
 
@@ -714,7 +736,7 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
     source:
       "피터팬 공개 목록 API, 전용 15평 이상 우선 풀, 16평 이상 건물유형별 세그먼트 풀, 슬라이더 완화 후보 풀, 일부 매물 상세 HTML, 카카오 로드뷰 공개 노드 API",
     query: {
-      location: "서울·경기",
+      location: "서울·경기·부산·대구",
       contract: "단기임대 또는 월세",
       maxDepositManwon: 500,
       maxMonthlyManwon: 360,
@@ -724,9 +746,9 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
       rawCollectLimit: limit,
       detailLimit,
       finalFilter:
-        "서울·경기, 전용 49.58㎡ 이상, 보증금 500만원 이하, 월세 360만원 이하, 사용승인 2000년 이후, 계약유형 단기임대 또는 월세",
+        "서울·경기·부산·대구, 전용 49.58㎡ 이상, 보증금 500만원 이하, 월세 360만원 이하, 사용승인 2000년 이후, 계약유형 단기임대 또는 월세",
       collectionFilter:
-        "서울·경기 전용 15~40평, 보증금 1000만원 이하, 월세 500만원 이하 후보를 함께 수집하고, 16평 이상은 지역별/건물유형별/월세·단기임대별로 별도 수집",
+        "서울·경기·부산·대구 전용 15~40평, 보증금 1000만원 이하, 월세 500만원 이하 후보를 함께 수집하고, 16평 이상은 지역별/건물유형별/월세·단기임대별로 별도 수집",
       note: "공급면적은 통과 판정에 사용하지 않음",
     },
     totalApiCount: Math.max(
