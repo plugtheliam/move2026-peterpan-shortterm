@@ -6,8 +6,9 @@ import type { CrawlData, Listing } from "./lib/crawler";
 const registerOrder = ["전체", "확정 가능", "본문에 가능", "미표시"] as const;
 const passOrder = ["조건통과", "상세미확인", "탈락"] as const;
 const reviewOrder = ["숨김 제외", "찜", "숨김", "전체"] as const;
-const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v9";
+const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v10";
 const LEGACY_LOCAL_KEYS = [
+  "move2026-peterpan-shortterm-recrawl-v9",
   "move2026-peterpan-shortterm-recrawl-v8",
   "move2026-peterpan-shortterm-recrawl-v7",
   "move2026-peterpan-shortterm-recrawl-v6",
@@ -20,13 +21,13 @@ const DEFAULT_CRITERIA = {
   maxMonthlyManwon: 360,
 };
 const RELAXED_CRITERIA = {
-  minRealPyeong: 5,
+  minRealPyeong: 16,
   maxDepositManwon: 1000,
   maxMonthlyManwon: 500,
 };
 const COLLECTION_MAX_REAL_PYEONG = 40;
 const COLLECTION_LIMIT = 600;
-const DETAIL_LIMIT = 220;
+const DETAIL_LIMIT = 360;
 
 type ListingAction = {
   favorite: boolean;

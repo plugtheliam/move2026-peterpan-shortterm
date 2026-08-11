@@ -82,12 +82,32 @@ test("ships a broad slider-ready Peterpan data set", async () => {
       maxMonthlyManwon: 500,
     }),
   );
+  const expandedLargePass = data.allListings.filter((listing) =>
+    isDynamicPass(listing, {
+      minRealPyeong: 16,
+      maxDepositManwon: 1000,
+      maxMonthlyManwon: 500,
+    }),
+  );
+  const sliderLargeCandidates = data.allListings.filter((listing) => {
+    const contractType = String(listing.rawSignals?.contractType ?? "");
+    return (
+      listing.dataDepth === "상세" &&
+      listing.realPyeong >= 16 &&
+      listing.depositManwon <= 1000 &&
+      listing.monthlyManwon <= 500 &&
+      (contractType === "단기임대" || contractType === "월세")
+    );
+  });
 
   assert.equal(data.collectedCount, 600);
-  assert.equal(detailed.length, 220);
-  assert.equal(defaultPass.length, 18);
-  assert.equal(expandedBudgetPass.length, 22);
-  assert.equal(relaxedPass.length, 43);
+  assert.equal(detailed.length, 360);
+  assert.ok(defaultPass.length >= 100);
+  assert.ok(expandedBudgetPass.length >= 150);
+  assert.ok(expandedLargePass.length >= 120);
+  assert.ok(relaxedPass.length >= expandedBudgetPass.length);
+  assert.ok(sliderLargeCandidates.length >= 150);
+  assert.ok(Math.max(...sliderLargeCandidates.map((listing) => listing.realPyeong)) >= 30);
   assert.equal(data.query.collectionMaxDepositManwon, 1000);
   assert.equal(data.query.collectionMaxMonthlyManwon, 500);
   assert.equal(data.query.collectionMaxRealPyeong, 40);
