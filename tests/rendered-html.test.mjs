@@ -115,6 +115,20 @@ test("ships a broad slider-ready Peterpan data set", async () => {
   assert.equal(withPeterpanLink.length, data.allListings.length);
 });
 
+test("ships local subway reference data for station proximity scoring", async () => {
+  const stations = JSON.parse(
+    await readFile(
+      new URL("../app/data/seoul-subway-stations.json", import.meta.url),
+      "utf8",
+    ),
+  );
+
+  assert.ok(stations.length >= 250);
+  assert.ok(stations.some((station) => station.name === "강남"));
+  assert.ok(stations.every((station) => Number.isFinite(station.lat)));
+  assert.ok(stations.every((station) => Number.isFinite(station.lon)));
+});
+
 test("persists listing review actions on the server", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "move2026-actions-"));
   process.env.MOVE2026_ACTIONS_PATH = join(stateDir, "actions.json");

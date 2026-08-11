@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { CrawlData, Listing } from "./lib/crawler";
+import subwayStations from "./data/seoul-subway-stations.json";
 
 const registerOrder = ["전체", "확정 가능", "본문에 가능", "미표시"] as const;
 const passOrder = ["조건통과", "상세미확인", "탈락"] as const;
@@ -36,6 +37,20 @@ type ListingAction = {
 };
 
 type ListingActions = Record<string, ListingAction>;
+type RatingItem = {
+  label: string;
+  score: number;
+  detail: string;
+};
+type ListingRating = {
+  overall: number;
+  upfrontManwon: number;
+  nearestStation: {
+    name: string;
+    distanceMeters: number;
+  } | null;
+  items: RatingItem[];
+};
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
@@ -64,6 +79,150 @@ function visibleDate(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function scoreLabel(score: number) {
+  if (score >= 4.5) return "excellent";
+  if (score >= 3.5) return "good";
+  if (score >= 2.5) return "ok";
+  return "weak";
+}
+
+function pyeongScore(value: number) {
+  if (value >= 20) return 5;
+  if (value >= 17) return 4;
+  if (value >= 15) return 3;
+  if (value > 0) return 2;
+  return 1;
+}
+
+function monthlyPriceScore(value: number) {
+  if (value <= 150) return 5;
+  if (value <= 250) return 4;
+  if (value <= 360) return 3;
+  if (value <= 450) return 2;
+  return 1;
+}
+
+function upfrontManwon(listing: Listing) {
+  const contractType = String(listing.rawSignals?.contractType ?? "");
+  const monthCount = contractType === "단기임대" ? 3 : 1;
+  return listing.depositManwon + listing.monthlyManwon * monthCount;
+}
+
+function upfrontScore(value: number) {
+  if (value <= 700) return 5;
+  if (value <= 1000) return 4;
+  if (value <= 1500) return 3;
+  if (value <= 2200) return 2;
+  return 1;
+}
+
+function distanceMeters(
+  a: { lat: number; lon: number },
+  b: { lat: number; lon: number },
+) {
+  const earthRadius = 6371000;
+  const lat1 = (a.lat * Math.PI) / 180;
+  const lat2 = (b.lat * Math.PI) / 180;
+  const deltaLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const deltaLon = ((b.lon - a.lon) * Math.PI) / 180;
+  const h =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
+  return 2 * earthRadius * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function nearestStation(listing: Listing) {
+  if (!listing.lat || !listing.lon) return null;
+  let nearest: { name: string; distanceMeters: number } | null = null;
+  for (const station of subwayStations) {
+    const distance = distanceMeters(listing, station);
+    if (!nearest || distance < nearest.distanceMeters) {
+      nearest = { name: station.name, distanceMeters: Math.round(distance) };
+    }
+  }
+  return nearest;
+}
+
+function stationScore(distance: number | null) {
+  if (distance === null) return 3;
+  if (distance <= 350) return 5;
+  if (distance <= 650) return 4;
+  if (distance <= 900) return 3;
+  if (distance <= 1200) return 2;
+  return 1;
+}
+
+function registerScore(status: Listing["registerStatus"]) {
+  return status === "미표시" ? 3 : 5;
+}
+
+function buildingYearScore(buildYear: number | null) {
+  if (!buildYear) return 2;
+  const age = Math.max(0, new Date().getFullYear() - buildYear);
+  if (age < 5) return 5;
+  if (age < 10) return 4;
+  if (age < 15) return 3;
+  if (age < 20) return 2;
+  if (age < 25) return 1;
+  return 0;
+}
+
+function buildingTypeScore(value: string) {
+  if (value.includes("아파트")) return 5;
+  if (value.includes("오피스텔")) return 4;
+  if (value.includes("빌라") || value.includes("주택")) return 3;
+  return 2;
+}
+
+function rateListing(listing: Listing): ListingRating {
+  const station = nearestStation(listing);
+  const upfront = upfrontManwon(listing);
+  const items: RatingItem[] = [
+    {
+      label: "평수",
+      score: pyeongScore(listing.realPyeong),
+      detail: `전용 ${listing.realPyeong ? listing.realPyeong.toFixed(2) : "-"}평`,
+    },
+    {
+      label: "가격",
+      score: monthlyPriceScore(listing.monthlyManwon),
+      detail: `월세 ${listing.monthlyManwon}만원`,
+    },
+    {
+      label: "초기 필요금",
+      score: upfrontScore(upfront),
+      detail: `${upfront.toLocaleString("ko-KR")}만원`,
+    },
+    {
+      label: "전철역",
+      score: stationScore(station?.distanceMeters ?? null),
+      detail: station
+        ? `${station.name}역 약 ${station.distanceMeters.toLocaleString("ko-KR")}m`
+        : "좌표 없음",
+    },
+    {
+      label: "전입",
+      score: registerScore(listing.registerStatus),
+      detail: listing.registerStatus,
+    },
+    {
+      label: "승인연도",
+      score: buildingYearScore(listing.buildYear),
+      detail: listing.buildYear ? `${listing.buildYear}년` : "미표시",
+    },
+    {
+      label: "건물형태",
+      score: buildingTypeScore(listing.buildingType),
+      detail: listing.buildingType,
+    },
+  ];
+  const overall =
+    Math.round(
+      (items.reduce((sum, item) => sum + item.score, 0) / items.length) * 10,
+    ) / 10;
+  return { overall, upfrontManwon: upfront, nearestStation: station, items };
 }
 
 function dynamicReasons(listing: Listing, criteria: typeof DEFAULT_CRITERIA) {
@@ -237,6 +396,9 @@ export default function Home() {
       if (sortMode === "newest") return (b.buildYear ?? 0) - (a.buildYear ?? 0);
       if (sortMode === "size") return b.realSize - a.realSize;
       if (sortMode === "rent") return a.monthlyManwon - b.monthlyManwon;
+      if (sortMode === "rating") {
+        return rateListing(b).overall - rateListing(a).overall;
+      }
       if (sortMode === "detail") {
         return Number(b.dataDepth === "상세") - Number(a.dataDepth === "상세");
       }
@@ -331,6 +493,19 @@ export default function Home() {
     setSelectedPass("조건통과");
     setSelectedRegister("전체");
     setSelectedReview("숨김 제외");
+  }
+
+  function showFavoriteResults() {
+    setSelectedReview("찜");
+    setSelectedPass("전체");
+    setSelectedRegister("전체");
+    setSortMode("rating");
+  }
+
+  function showHiddenResults() {
+    setSelectedReview("숨김");
+    setSelectedPass("전체");
+    setSelectedRegister("전체");
   }
 
   async function saveListingAction(
@@ -478,6 +653,7 @@ export default function Home() {
             <option value="priority">우선순위</option>
             <option value="detail">상세 보강 우선</option>
             <option value="newest">사용승인 최신순</option>
+            <option value="rating">내 평가 높은순</option>
             <option value="size">전용면적 큰순</option>
             <option value="rent">월세 낮은순</option>
           </select>
@@ -486,6 +662,35 @@ export default function Home() {
 
       {recrawlMessage ? <div className="recrawlNote">{recrawlMessage}</div> : null}
       {actionMessage ? <div className="actionNote">{actionMessage}</div> : null}
+
+      <section className="menuBand" aria-label="빠른 메뉴">
+        <button
+          className={selectedReview === "숨김 제외" ? "active" : ""}
+          onClick={showDefaultResults}
+          type="button"
+        >
+          전체 보기
+        </button>
+        <button
+          className={selectedReview === "찜" ? "active favoriteMenu" : "favoriteMenu"}
+          onClick={showFavoriteResults}
+          type="button"
+        >
+          찜한 매물
+          <strong>{stats.favoriteCount}</strong>
+        </button>
+        <button
+          className={selectedReview === "숨김" ? "active" : ""}
+          onClick={showHiddenResults}
+          type="button"
+        >
+          숨김
+          <strong>{stats.hiddenCount}</strong>
+        </button>
+        <button onClick={showRelaxedResults} type="button">
+          16평 넓게 보기
+        </button>
+      </section>
 
       <section className="sliderBand" aria-label="동적 조건">
         <div className="sliderHeader">
@@ -697,6 +902,7 @@ export default function Home() {
           const action = listingActions[String(listing.id)];
           const isFavorite = Boolean(action?.favorite);
           const isHidden = Boolean(action?.hidden);
+          const rating = rateListing(listing);
 
           return (
             <article
@@ -757,6 +963,34 @@ export default function Home() {
                   >
                     {isHidden ? "다시 표기" : "더 이상 표기하지 않기"}
                   </button>
+                </div>
+
+                <div className={`ratingPanel ${scoreLabel(rating.overall)}`}>
+                  <div className="ratingSummary">
+                    <span>내 평가</span>
+                    <strong>{rating.overall.toFixed(1)}</strong>
+                    <small>/5</small>
+                  </div>
+                  <div className="ratingContext">
+                    <span>
+                      초기 필요금 {rating.upfrontManwon.toLocaleString("ko-KR")}
+                      만원
+                    </span>
+                    <span>
+                      {rating.nearestStation
+                        ? `${rating.nearestStation.name}역 약 ${rating.nearestStation.distanceMeters.toLocaleString("ko-KR")}m`
+                        : "가까운 역 좌표 미확인"}
+                    </span>
+                  </div>
+                  <div className="ratingItems">
+                    {rating.items.map((item) => (
+                      <div key={item.label}>
+                        <span>{item.label}</span>
+                        <strong>{item.score}</strong>
+                        <small>{item.detail}</small>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="metrics">
