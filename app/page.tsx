@@ -7,6 +7,7 @@ import subwayStations from "./data/korea-subway-stations.json";
 const registerOrder = ["전체", "확정 가능", "본문에 가능", "미표시"] as const;
 const passOrder = ["조건통과", "상세미확인", "탈락"] as const;
 const reviewOrder = ["숨김 제외", "찜", "숨김", "전체"] as const;
+const sourceOrder = ["전체", "피터팬", "삼삼엠투"] as const;
 const regionOrder = ["서울특별시", "경기도", "부산광역시", "대구광역시"] as const;
 const regionLabels: Record<(typeof regionOrder)[number], string> = {
   서울특별시: "서울",
@@ -22,8 +23,9 @@ const buildingOrder = [
   "빌라/주택",
   "원/투룸",
 ] as const;
-const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v16";
+const LOCAL_KEY = "move2026-peterpan-shortterm-recrawl-v17";
 const LEGACY_LOCAL_KEYS = [
+  "move2026-peterpan-shortterm-recrawl-v16",
   "move2026-peterpan-shortterm-recrawl-v15",
   "move2026-peterpan-shortterm-recrawl-v14",
   "move2026-peterpan-shortterm-recrawl-v13",
@@ -50,6 +52,8 @@ const RELAXED_CRITERIA = {
 const COLLECTION_MAX_REAL_PYEONG = 40;
 const COLLECTION_LIMIT = 5000;
 const DETAIL_LIMIT = 2800;
+const SAMSAM_LIMIT = 700;
+const SAMSAM_DETAIL_LIMIT = 700;
 
 type ListingAction = {
   favorite: boolean;
@@ -126,6 +130,8 @@ function monthlyPriceScore(value: number) {
 }
 
 function upfrontManwon(listing: Listing) {
+  const samsamTotal = Number(listing.rawSignals?.totalStayManwon ?? 0);
+  if (listing.source === "삼삼엠투" && samsamTotal > 0) return samsamTotal;
   const contractType = String(listing.rawSignals?.contractType ?? "");
   const monthCount = contractType === "단기임대" ? 3 : 1;
   return listing.depositManwon + listing.monthlyManwon * monthCount;
@@ -249,6 +255,7 @@ function rateListing(listing: Listing): ListingRating {
 function dynamicReasons(listing: Listing, criteria: typeof DEFAULT_CRITERIA) {
   const reasons: string[] = [];
   const contractType = String(listing.rawSignals?.contractType ?? "");
+  const isSamsam = listing.source === "삼삼엠투";
 
   if (
     listing.address &&
@@ -274,7 +281,7 @@ function dynamicReasons(listing: Listing, criteria: typeof DEFAULT_CRITERIA) {
   if (listing.buildYear !== null && listing.buildYear < 2000) {
     reasons.push("2000년 이전");
   }
-  if (listing.dataDepth === "상세" && !listing.buildingDate) {
+  if (!isSamsam && listing.dataDepth === "상세" && !listing.buildingDate) {
     reasons.push("사용승인일 미표시");
   }
 
@@ -333,6 +340,8 @@ export default function Home() {
     useState<"전체" | (typeof passOrder)[number]>("조건통과");
   const [selectedReview, setSelectedReview] =
     useState<(typeof reviewOrder)[number]>("숨김 제외");
+  const [selectedSource, setSelectedSource] =
+    useState<(typeof sourceOrder)[number]>("전체");
   const [sortMode, setSortMode] = useState("newest");
   const [criteria, setCriteria] = useState(DEFAULT_CRITERIA);
   const [selectedRegions, setSelectedRegions] = useState<string[]>([
@@ -408,9 +417,11 @@ export default function Home() {
     const selected = new Set(selectedRegions);
     return sourceListings.filter((item) => {
       const sido = item.address.split(" ")[0];
-      return selected.has(sido);
+      const sourceMatch =
+        selectedSource === "전체" || (item.source ?? "피터팬") === selectedSource;
+      return selected.has(sido) && sourceMatch;
     });
-  }, [sourceListings, selectedRegions]);
+  }, [sourceListings, selectedRegions, selectedSource]);
 
   const listings = useMemo(() => {
     const filtered = regionListings.filter((item) => {
@@ -424,6 +435,7 @@ export default function Home() {
         item.summary,
         item.buildingType,
         item.roomType,
+        item.source,
       ]
         .join(" ")
         .toLowerCase();
@@ -546,6 +558,7 @@ export default function Home() {
     criteria.minRealPyeong > sliderSummary.maxReal;
 
   function showRelaxedResults() {
+    setSelectedSource("전체");
     setSelectedRegions([...regionOrder]);
     setSelectedBuilding("전체");
     setKeyword("");
@@ -556,6 +569,7 @@ export default function Home() {
   }
 
   function showDefaultResults() {
+    setSelectedSource("전체");
     setSelectedRegions([...regionOrder]);
     setSelectedBuilding("전체");
     setKeyword("");
@@ -573,6 +587,7 @@ export default function Home() {
   }
 
   function showHaeundaeResults() {
+    setSelectedSource("피터팬");
     setSelectedRegions(["부산광역시"]);
     setSelectedBuilding("오피스텔");
     setKeyword("해운대");
@@ -583,6 +598,7 @@ export default function Home() {
   }
 
   function showCentumResults() {
+    setSelectedSource("피터팬");
     setSelectedRegions(["부산광역시"]);
     setSelectedBuilding("전체");
     setKeyword("센텀");
@@ -593,6 +609,7 @@ export default function Home() {
   }
 
   function showSeoulOfficeAptResults() {
+    setSelectedSource("전체");
     setSelectedRegions(["서울특별시"]);
     setSelectedBuilding("아파트·오피스텔");
     setKeyword("");
@@ -603,9 +620,22 @@ export default function Home() {
   }
 
   function showGyeonggiOfficeAptResults() {
+    setSelectedSource("피터팬");
     setSelectedRegions(["경기도"]);
     setSelectedBuilding("아파트·오피스텔");
     setKeyword("");
+    setSelectedPass("전체");
+    setSelectedRegister("전체");
+    setSelectedReview("숨김 제외");
+    setSortMode("rating");
+  }
+
+  function showSamsamSeoulResults() {
+    setSelectedSource("삼삼엠투");
+    setSelectedRegions(["서울특별시"]);
+    setSelectedBuilding("아파트·오피스텔");
+    setKeyword("");
+    setCriteria(DEFAULT_CRITERIA);
     setSelectedPass("전체");
     setSelectedRegister("전체");
     setSelectedReview("숨김 제외");
@@ -679,7 +709,12 @@ export default function Home() {
       const response = await fetch(`${BASE_PATH}/api/recrawl`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ limit: COLLECTION_LIMIT, detailLimit: DETAIL_LIMIT }),
+        body: JSON.stringify({
+          limit: COLLECTION_LIMIT,
+          detailLimit: DETAIL_LIMIT,
+          samsamLimit: SAMSAM_LIMIT,
+          samsamDetailLimit: SAMSAM_DETAIL_LIMIT,
+        }),
       });
       if (!response.ok) throw new Error("재수집 요청 실패");
       const nextData = (await response.json()) as CrawlData;
@@ -724,13 +759,14 @@ export default function Home() {
     <main>
       <section className="hero">
         <div>
-          <p className="eyebrow">Peterpanz Target Region Short-Term Scout</p>
+            <p className="eyebrow">Peterpan + 33m2 Rental Scout</p>
           <h1>서울·경기·부산·대구 단기임대 검토판</h1>
           <p className="lead">
             서울·경기·부산·대구 전용 15평 이상 매물 중 보증금 500만원
             이하·월세 360만원 이하인 단기임대와 월세 후보를 함께 검토합니다.
-            공급면적은 통과 기준에 넣지 않고, 찜과 숨김 상태는 서버에
-            저장됩니다.
+            33m2는 2026년 8월 30일부터 12주 가능한 서울 오피스텔·아파트를
+            별도 소스로 함께 봅니다. 공급면적은 통과 기준에 넣지 않고, 찜과
+            숨김 상태는 서버에 저장됩니다.
           </p>
         </div>
         <div className="heroStats" aria-label="수집 요약">
@@ -744,7 +780,7 @@ export default function Home() {
           </div>
           <div>
             <strong>{stats.imageCount}</strong>
-            <span>피터팬 사진</span>
+            <span>매물 사진</span>
           </div>
         </div>
       </section>
@@ -814,6 +850,9 @@ export default function Home() {
         </button>
         <button onClick={showSeoulOfficeAptResults} type="button">
           서울 아파트·오피스텔
+        </button>
+        <button onClick={showSamsamSeoulResults} type="button">
+          33m2 서울 12주
         </button>
         <button onClick={showGyeonggiOfficeAptResults} type="button">
           경기 아파트·오피스텔
@@ -927,6 +966,18 @@ export default function Home() {
       </section>
 
       <section className="filterBand" aria-label="상태 필터">
+        <div className="segmented sourceSegmented" aria-label="플랫폼 필터">
+          {sourceOrder.map((source) => (
+            <button
+              key={source}
+              className={selectedSource === source ? "active" : ""}
+              onClick={() => setSelectedSource(source)}
+              type="button"
+            >
+              {source}
+            </button>
+          ))}
+        </div>
         <div className="segmented regionSegmented" aria-label="지역 필터">
           {regionOrder.map((region) => (
             <button
@@ -1070,6 +1121,14 @@ export default function Home() {
           const isFavorite = Boolean(action?.favorite);
           const isHidden = Boolean(action?.hidden);
           const rating = rateListing(listing);
+          const source = listing.source ?? "피터팬";
+          const isSamsam = source === "삼삼엠투";
+          const weeklyUsingFee = Number(listing.rawSignals?.weeklyUsingFeeManwon ?? 0);
+          const weeklyMgmtFee = Number(listing.rawSignals?.weeklyMgmtFeeManwon ?? 0);
+          const totalStay = Number(listing.rawSignals?.totalStayManwon ?? 0);
+          const monthlyWithMgmt = Number(
+            listing.rawSignals?.monthlyEquivalentWithMgmtManwon ?? 0,
+          );
 
           return (
             <article
@@ -1086,6 +1145,7 @@ export default function Home() {
                 )}
                 <div className="mediaMeta">
                   <span>#{index + 1}</span>
+                  <span>{source}</span>
                   <span>{listing.dataDepth}</span>
                   <span>{listing.images?.length ?? 0} photos</span>
                 </div>
@@ -1100,6 +1160,7 @@ export default function Home() {
                   <div className="badgeStack">
                     {isFavorite ? <span className="badge favorite">찜</span> : null}
                     {isHidden ? <span className="badge hidden">숨김</span> : null}
+                    <span className="badge sourceBadge">{source}</span>
                     <span className={`badge ${passClass(passStatus)}`}>
                       {passStatus}
                     </span>
@@ -1171,11 +1232,11 @@ export default function Home() {
                     </small>
                   </div>
                   <div>
-                    <span>보증금/월세</span>
+                    <span>{isSamsam ? "보증금/월환산" : "보증금/월세"}</span>
                     <strong>
                       {listing.depositManwon}/{listing.monthlyManwon}
                     </strong>
-                    <small>만원</small>
+                    <small>{isSamsam ? "만원 · 이용료" : "만원"}</small>
                   </div>
                   <div>
                     <span>사용승인</span>
@@ -1208,8 +1269,16 @@ export default function Home() {
                     <strong>입주</strong> {listing.moveText || "-"} ·{" "}
                     <strong>관리비</strong> {listing.maintenanceManwon}만원
                   </p>
+                  {isSamsam ? (
+                    <p>
+                      <strong>33m2 비용</strong> 주 이용료 {weeklyUsingFee}만원 ·
+                      주 관리비 {weeklyMgmtFee}만원 · 월환산 관리비 포함{" "}
+                      {monthlyWithMgmt || listing.monthlyManwon}만원 · 12주 총액{" "}
+                      {totalStay.toLocaleString("ko-KR")}만원
+                    </p>
+                  ) : null}
                   <p>
-                    <strong>피터팬 등록</strong>{" "}
+                    <strong>{isSamsam ? "33m2 조회기간" : "피터팬 등록"}</strong>{" "}
                     {formatDate(listing.peterpanCreatedAt ?? listing.liveStartDate)}
                   </p>
                   <p>
@@ -1222,7 +1291,7 @@ export default function Home() {
                 </div>
 
                 {listing.images?.length ? (
-                  <div className="gallery" aria-label="피터팬 사진 전체">
+                  <div className="gallery" aria-label="매물 사진 전체">
                     {listing.images.slice(0, 24).map((image, photoIndex) => (
                       <button
                         type="button"
@@ -1265,7 +1334,7 @@ export default function Home() {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    피터팬
+                    {source}
                   </a>
                   <a
                     href={listing.kakaoRoadviewLink}

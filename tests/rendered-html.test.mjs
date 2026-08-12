@@ -27,6 +27,7 @@ async function render() {
 
 function isDynamicPass(listing, criteria) {
   const contractType = String(listing.rawSignals?.contractType ?? "");
+  const isSamsam = listing.source === "삼삼엠투";
   if (listing.dataDepth !== "상세") return false;
   if (
     listing.address &&
@@ -42,7 +43,7 @@ function isDynamicPass(listing, criteria) {
   if (listing.depositManwon > criteria.maxDepositManwon) return false;
   if (listing.monthlyManwon > criteria.maxMonthlyManwon) return false;
   if (listing.buildYear !== null && listing.buildYear < 2000) return false;
-  if (!listing.buildingDate) return false;
+  if (!isSamsam && !listing.buildingDate) return false;
   return true;
 }
 
@@ -57,7 +58,7 @@ test("server-renders the Move 2026 shell", async () => {
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
 });
 
-test("ships a broad slider-ready Peterpan data set", async () => {
+test("ships a broad slider-ready multi-source data set", async () => {
   const data = JSON.parse(
     await readFile(new URL("../public/data/listings.json", import.meta.url), "utf8"),
   );
@@ -66,8 +67,15 @@ test("ships a broad slider-ready Peterpan data set", async () => {
   const withCreated = data.allListings.filter(
     (listing) => listing.peterpanCreatedAt || listing.liveStartDate,
   );
-  const withPeterpanLink = data.allListings.filter((listing) =>
-    /^https:\/\/www\.peterpanz\.com\/house\/\d+/.test(listing.url),
+  const withDirectLink = data.allListings.filter((listing) =>
+    /^https:\/\/www\.peterpanz\.com\/house\/\d+/.test(listing.url) ||
+    /^https:\/\/web\.33m2\.co\.kr\/guest\/room\/\d+/.test(listing.url),
+  );
+  const peterpanListings = data.allListings.filter(
+    (listing) => (listing.source ?? "피터팬") === "피터팬",
+  );
+  const samsamListings = data.allListings.filter(
+    (listing) => listing.source === "삼삼엠투",
   );
   const defaultPass = data.allListings.filter((listing) =>
     isDynamicPass(listing, {
@@ -155,6 +163,7 @@ test("ships a broad slider-ready Peterpan data set", async () => {
     ),
   );
 
+  assert.ok(peterpanListings.length >= 4900);
   assert.ok(data.collectedCount >= 4900);
   assert.ok(detailed.length >= 2700);
   assert.ok(defaultPass.length >= 500);
@@ -183,7 +192,20 @@ test("ships a broad slider-ready Peterpan data set", async () => {
   assert.equal(data.query.collectionMaxMonthlyManwon, 500);
   assert.equal(data.query.collectionMaxRealPyeong, 40);
   assert.equal(withCreated.length, data.allListings.length);
-  assert.equal(withPeterpanLink.length, data.allListings.length);
+  assert.equal(withDirectLink.length, data.allListings.length);
+  assert.ok(samsamListings.length >= 10);
+  assert.ok(samsamListings.every((listing) => listing.address?.startsWith("서울특별시")));
+  assert.ok(samsamListings.every((listing) => /오피스텔|아파트/.test(listing.buildingType)));
+  assert.ok(samsamListings.every((listing) => listing.realPyeong >= 15));
+  assert.ok(
+    samsamListings.every(
+      (listing) =>
+        listing.rawSignals?.startDate === "2026-08-30" &&
+        listing.rawSignals?.endDate === "2026-11-22" &&
+        listing.rawSignals?.stayWeeks === 12,
+    ),
+  );
+  assert.ok(samsamListings.some((listing) => listing.images.length > 0));
 });
 
 test("ships local subway reference data for station proximity scoring", async () => {

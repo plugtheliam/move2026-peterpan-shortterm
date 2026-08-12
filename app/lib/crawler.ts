@@ -66,6 +66,7 @@ export type Roadview = {
 
 export type Listing = {
   id: number;
+  source: "피터팬" | "삼삼엠투";
   url: string;
   title: string;
   summary: string;
@@ -178,6 +179,11 @@ const COLLECTION_MIN_REAL_PYEONG = 15;
 const COLLECTION_MAX_REAL_PYEONG = 40;
 const COLLECTION_BUILDING_TYPES = ["빌라/주택", "오피스텔", "아파트", "원/투룸"] as const;
 const PRIORITY_BUILDING_TYPES = ["오피스텔", "아파트"] as const;
+const SAMSAM_SOURCE_ID_OFFSET = 33_000_000;
+const SAMSAM_START_DATE = "2026-08-30";
+const SAMSAM_END_DATE = "2026-11-22";
+const SAMSAM_WEEKS = 12;
+const SAMSAM_IMAGE_BASE = "https://dsti6pxai92pb.cloudfront.net/";
 const FOCUS_AREAS = [
   {
     name: "부산 센텀역",
@@ -399,6 +405,23 @@ async function fetchText(url: string) {
   return response.text();
 }
 
+async function fetchSamsamJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      Referer: "https://web.33m2.co.kr/en/guest/main",
+      "os-type": "WEB",
+      "Client-Language": "ko",
+      "Content-Type": "application/json",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`33m2 fetch failed ${response.status}: ${url}`);
+  }
+  return response.json() as Promise<T>;
+}
+
 function flattenHouses(data: { houses?: Record<string, Record<string, PeterpanListItem[]>> }) {
   const rows: PeterpanListItem[] = [];
   for (const group of Object.values(data.houses ?? {})) {
@@ -542,6 +565,7 @@ function buildListing(item: PeterpanListItem, detail?: Record<string, unknown>, 
 
   return {
     id: hidx,
+    source: "피터팬",
     url: `https://www.peterpanz.com/house/${hidx}`,
     title,
     summary: clean(description.slice(0, 450)),
@@ -622,6 +646,300 @@ async function mapWithConcurrency<T, R>(
   });
   await Promise.all(workers);
   return results;
+}
+
+type SamsamRoomListItem = {
+  rid: number;
+  roomName?: string;
+  propertyType?: string;
+  addrLot?: string;
+  addrStreet?: string;
+  state?: string;
+  province?: string;
+  town?: string;
+  lat?: number;
+  lng?: number;
+  deposit?: number;
+  usingFee?: number;
+  mgmtFee?: number;
+  cleanFee?: number;
+  pyeongSize?: number;
+  squareMeterSize?: number;
+  roomUrl?: string;
+  picMain?: string;
+  pictures?: string[];
+};
+
+type SamsamRoomDetail = SamsamRoomListItem & {
+  description?: string;
+  additionalDescription?: string;
+  usageGuide?: string;
+  transportation?: string;
+  minimumContractWeeks?: number;
+  roomCnt?: number;
+  bathroomCnt?: number;
+  cookroomCnt?: number;
+  sittingroomCnt?: number;
+  duplexStructure?: boolean;
+  reviewScore?: number;
+  reviewList?: Array<{ score?: number; content?: string; createdAt?: string }>;
+  includeElectricity?: boolean;
+  includeWater?: boolean;
+  includeGas?: boolean;
+  hostUser?: { nickname?: string };
+};
+
+function samsamImageUrl(path: string) {
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${SAMSAM_IMAGE_BASE}${path.replace(/^\/+/, "")}`;
+}
+
+function samsamPropertyType(value?: string) {
+  if (value === "APARTMENT" || value === "아파트") return "아파트";
+  if (value === "OFFICETEL" || value === "오피스텔") return "오피스텔";
+  return value || "-";
+}
+
+function buildSamsamListUrl({
+  bounds,
+  page,
+  size,
+}: {
+  bounds: (typeof COLLECTION_REGIONS)[number]["bounds"];
+  page: number;
+  size: number;
+}) {
+  const params = new URLSearchParams({
+    swLat: String(bounds.minLat),
+    swLng: String(bounds.minLon),
+    neLat: String(bounds.maxLat),
+    neLng: String(bounds.maxLon),
+    page: String(page),
+    size: String(size),
+    sortBy: "POPULAR",
+    startDate: SAMSAM_START_DATE,
+    endDate: SAMSAM_END_DATE,
+  });
+
+  for (const propertyType of ["OFFICETEL", "APARTMENT"]) {
+    params.append("propertyTypes", propertyType);
+  }
+  for (const pyeongSize of ["RANGE_TEN", "RANGE_TWENTY", "RANGE_THIRTY", "OVER_FORTY"]) {
+    params.append("pyeongSizes", pyeongSize);
+  }
+
+  return `https://web.33m2.co.kr/v1/map/rooms?${params.toString()}`;
+}
+
+function buildSamsamListing(room: SamsamRoomDetail): Listing {
+  const rid = room.rid;
+  const propertyType = samsamPropertyType(room.propertyType);
+  const state = room.state || "서울특별시";
+  const province = room.province || "";
+  const town = room.town || "";
+  const address = clean([state, province, town].filter(Boolean).join(" "));
+  const jibunAddress = clean(room.addrLot || address);
+  const roadAddress = clean(room.addrStreet || "");
+  const lat = room.lat ?? 0;
+  const lon = room.lng ?? 0;
+  const depositManwon = manwon(room.deposit);
+  const weeklyUsingFeeManwon = manwon(room.usingFee);
+  const weeklyMgmtFeeManwon = manwon(room.mgmtFee);
+  const cleanFeeManwon = manwon(room.cleanFee);
+  const monthlyEquivalentManwon = Math.round(weeklyUsingFeeManwon * 4.345);
+  const monthlyEquivalentWithMgmtManwon = Math.round(
+    (weeklyUsingFeeManwon + weeklyMgmtFeeManwon) * 4.345,
+  );
+  const totalStayManwon =
+    depositManwon +
+    (weeklyUsingFeeManwon + weeklyMgmtFeeManwon) * SAMSAM_WEEKS +
+    cleanFeeManwon;
+  const realPyeong = room.pyeongSize ?? pyeong(room.squareMeterSize);
+  const realSize = room.squareMeterSize ?? realPyeong * 3.305785;
+  const reviewCount = room.reviewList?.length ?? 0;
+  const reviewScore = room.reviewScore ?? room.reviewList?.[0]?.score;
+  const reviewFinding = reviewCount
+    ? `33m2 후기 ${reviewCount}개, 평균 ${reviewScore ? reviewScore.toFixed(1) : "미표시"}점.`
+    : "33m2 공개 상세 기준 등록 후기는 확인되지 않음.";
+  const title = clean(room.roomName || `33m2 매물 ${rid}`);
+  const summary = clean(
+    [
+      room.description,
+      room.additionalDescription,
+      room.usageGuide,
+      room.transportation,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  ).slice(0, 450);
+  const images = unique(
+    [room.picMain, ...(room.pictures ?? [])].filter(Boolean).map((image) =>
+      samsamImageUrl(String(image)),
+    ),
+  );
+  const excludedReasons: string[] = [];
+
+  if (state !== "서울특별시") excludedReasons.push("33m2 서울 아님");
+  if (propertyType !== "오피스텔" && propertyType !== "아파트") {
+    excludedReasons.push("33m2 오피스텔/아파트 아님");
+  }
+  if (realPyeong < COLLECTION_MIN_REAL_PYEONG) {
+    excludedReasons.push("전용 15평 미만");
+  }
+  if ((room.minimumContractWeeks ?? 1) > SAMSAM_WEEKS) {
+    excludedReasons.push("12주 계약 불가");
+  }
+
+  return {
+    id: SAMSAM_SOURCE_ID_OFFSET + rid,
+    source: "삼삼엠투",
+    url: room.roomUrl || `https://web.33m2.co.kr/guest/room/${rid}`,
+    title,
+    summary,
+    address,
+    jibunAddress,
+    roadAddress,
+    lat,
+    lon,
+    buildingType: propertyType,
+    roomType: `${room.roomCnt ?? "-"}룸`,
+    floor: "-",
+    depositManwon,
+    monthlyManwon: monthlyEquivalentManwon,
+    maintenanceManwon: Math.round(weeklyMgmtFeeManwon * 4.345),
+    realSize,
+    realPyeong,
+    suppliedSize: undefined,
+    suppliedPyeong: undefined,
+    buildingDate: "",
+    buildYear: null,
+    registerStatus: "미표시",
+    moveText: `${SAMSAM_START_DATE}~${SAMSAM_END_DATE} · 12주 기준`,
+    peterpanCreatedAt: undefined,
+    liveStartDate: SAMSAM_START_DATE,
+    liveEndDate: SAMSAM_END_DATE,
+    illegalBuilding: null,
+    images,
+    roadviews: [],
+    kakaoRoadviewLink: `https://map.kakao.com/link/roadview/${lat},${lon}`,
+    kakaoMapLink: `https://map.kakao.com/link/map/${encodeMapQuery(address)},${lat},${lon}`,
+    kakaoSearchLink: `https://map.kakao.com/link/search/${encodeMapQuery(jibunAddress)}`,
+    naverMapLink: `https://map.naver.com/p/search/${encodeMapQuery(jibunAddress)}`,
+    googleMapLink: `https://www.google.com/maps/search/?api=1&query=${encodeMapQuery(jibunAddress)}`,
+    hogangnonoSearchLink: `https://hogangnono.com/search?q=${encodeMapQuery(jibunAddress)}`,
+    reviewFinding,
+    passStatus: excludedReasons.length ? "탈락" : "조건통과",
+    excludedReasons,
+    dataDepth: "상세",
+    rawSignals: {
+      sourceRid: rid,
+      contractType: "단기임대",
+      propertyType: room.propertyType,
+      startDate: SAMSAM_START_DATE,
+      endDate: SAMSAM_END_DATE,
+      stayWeeks: SAMSAM_WEEKS,
+      weeklyUsingFeeManwon,
+      weeklyMgmtFeeManwon,
+      cleanFeeManwon,
+      totalStayManwon,
+      monthlyEquivalentManwon,
+      monthlyEquivalentWithMgmtManwon,
+      reviewScore,
+      reviewCount,
+      minimumContractWeeks: room.minimumContractWeeks,
+      includeElectricity: room.includeElectricity,
+      includeWater: room.includeWater,
+      includeGas: room.includeGas,
+      hostNickname: room.hostUser?.nickname,
+    },
+  };
+}
+
+async function crawlSamsamM2(options: { limit?: number; detailLimit?: number } = {}) {
+  const limit = Math.max(20, Math.min(options.limit ?? 700, 1500));
+  const detailLimit = Math.max(0, Math.min(options.detailLimit ?? limit, limit));
+  const areas = splitRegionGrid(COLLECTION_REGIONS[0], 4, 4);
+  const byId = new Map<number, SamsamRoomListItem>();
+  let totalApiCount = 0;
+
+  for (const area of areas) {
+    for (let page = 1; page <= 12; page += 1) {
+      try {
+        const result = await fetchSamsamJson<{
+          data?: {
+            content?: SamsamRoomListItem[];
+            last?: boolean;
+            totalElements?: number;
+          };
+        }>(buildSamsamListUrl({ bounds: area.bounds, page, size: 100 }));
+        const content = result.data?.content ?? [];
+        totalApiCount = Math.max(totalApiCount, result.data?.totalElements ?? content.length);
+        for (const item of content) {
+          if (item.rid && !byId.has(item.rid)) byId.set(item.rid, item);
+        }
+        if (content.length === 0 || result.data?.last || byId.size >= limit) break;
+      } catch {
+        break;
+      }
+    }
+    if (byId.size >= limit) break;
+  }
+
+  const listItems = [...byId.values()]
+    .filter((item) => (item.state || "서울특별시") === "서울특별시")
+    .filter((item) => {
+      const propertyType = samsamPropertyType(item.propertyType);
+      return propertyType === "오피스텔" || propertyType === "아파트";
+    })
+    .filter((item) => (item.pyeongSize ?? pyeong(item.squareMeterSize)) >= COLLECTION_MIN_REAL_PYEONG)
+    .slice(0, limit);
+  const detailItems = await mapWithConcurrency(
+    listItems.slice(0, detailLimit),
+    8,
+    async (item) => {
+      try {
+        const result = await fetchSamsamJson<{ data?: SamsamRoomDetail }>(
+          `https://web.33m2.co.kr/v1/rooms/${item.rid}?uuid=move2026`,
+        );
+        return result.data ? { ...item, ...result.data } : item;
+      } catch {
+        return item;
+      }
+    },
+  );
+  const listings = detailItems.map(buildSamsamListing);
+  const roadviewTargets = listings.filter((item) => item.passStatus === "조건통과").slice(0, 40);
+
+  await mapWithConcurrency(roadviewTargets, 8, async (item) => {
+    item.roadviews = await fetchRoadviews(item.lat, item.lon);
+  });
+
+  const qualified = listings.filter((item) => item.passStatus === "조건통과");
+  const excluded = listings.filter((item) => item.passStatus === "탈락");
+
+  return {
+    generatedAt: new Date().toISOString(),
+    source: "33m2 공개 지도/상세 API",
+    query: {
+      source: "33m2",
+      location: "서울특별시",
+      propertyTypes: ["OFFICETEL", "APARTMENT"],
+      minRealPyeong: 15,
+      startDate: SAMSAM_START_DATE,
+      endDate: SAMSAM_END_DATE,
+      stayWeeks: SAMSAM_WEEKS,
+      rawCollectLimit: limit,
+      detailLimit,
+      note: "33m2 사용승인일은 공개 API에서 확인되지 않아 플랫폼 전용 조건통과 판정에서는 제외",
+    },
+    totalApiCount,
+    collectedCount: listings.length,
+    qualifiedCount: qualified.length,
+    excludedCount: excluded.length,
+    allListings: listings,
+    listings: qualified,
+    excluded,
+  } satisfies CrawlData;
 }
 
 async function collectListItems(
@@ -1039,6 +1357,44 @@ export async function crawlPeterpan(options: { limit?: number; detailLimit?: num
     qualifiedCount: qualified.length,
     excludedCount: excluded.length,
     allListings: listings,
+    listings: qualified,
+    excluded,
+  };
+}
+
+export async function crawlMoveListings(
+  options: {
+    limit?: number;
+    detailLimit?: number;
+    samsamLimit?: number;
+    samsamDetailLimit?: number;
+  } = {},
+): Promise<CrawlData> {
+  const [peterpan, samsam] = await Promise.all([
+    crawlPeterpan({ limit: options.limit, detailLimit: options.detailLimit }),
+    crawlSamsamM2({
+      limit: options.samsamLimit ?? 700,
+      detailLimit: options.samsamDetailLimit ?? options.samsamLimit ?? 700,
+    }),
+  ]);
+  const allListings = [...peterpan.allListings, ...samsam.allListings];
+  const qualified = allListings.filter((item) => item.passStatus === "조건통과");
+  const excluded = allListings.filter((item) => item.passStatus === "탈락");
+
+  return {
+    generatedAt: new Date().toISOString(),
+    source: `${peterpan.source}; ${samsam.source}`,
+    query: {
+      ...peterpan.query,
+      additionalSources: {
+        samsamM2: samsam.query,
+      },
+    },
+    totalApiCount: peterpan.totalApiCount + samsam.totalApiCount,
+    collectedCount: allListings.length,
+    qualifiedCount: qualified.length,
+    excludedCount: excluded.length,
+    allListings,
     listings: qualified,
     excluded,
   };
