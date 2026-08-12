@@ -683,6 +683,11 @@ type SamsamRoomDetail = SamsamRoomListItem & {
   duplexStructure?: boolean;
   reviewScore?: number;
   reviewList?: Array<{ score?: number; content?: string; createdAt?: string }>;
+  longTermDiscounts?: Array<{
+    weeks?: number;
+    discountRate?: number;
+    discountedUsingFee?: number;
+  }>;
   includeElectricity?: boolean;
   includeWater?: boolean;
   includeGas?: boolean;
@@ -746,6 +751,13 @@ function buildSamsamListing(room: SamsamRoomDetail): Listing {
   const weeklyUsingFeeManwon = manwon(room.usingFee);
   const weeklyMgmtFeeManwon = manwon(room.mgmtFee);
   const cleanFeeManwon = manwon(room.cleanFee);
+  const applicableLongTermDiscount = [...(room.longTermDiscounts ?? [])]
+    .filter((discount) => (discount.weeks ?? Number.POSITIVE_INFINITY) <= 4)
+    .sort((a, b) => (b.weeks ?? 0) - (a.weeks ?? 0))[0];
+  const discountedWeeklyUsingFeeManwon =
+    applicableLongTermDiscount?.discountedUsingFee !== undefined
+      ? manwon(applicableLongTermDiscount.discountedUsingFee)
+      : weeklyUsingFeeManwon;
   const monthlyEquivalentManwon = Math.round(weeklyUsingFeeManwon * 4.345);
   const monthlyEquivalentWithMgmtManwon = Math.round(
     (weeklyUsingFeeManwon + weeklyMgmtFeeManwon) * 4.345,
@@ -753,6 +765,10 @@ function buildSamsamListing(room: SamsamRoomDetail): Listing {
   const totalStayManwon =
     depositManwon +
     (weeklyUsingFeeManwon + weeklyMgmtFeeManwon) * SAMSAM_WEEKS +
+    cleanFeeManwon;
+  const fourWeekStayManwon =
+    depositManwon +
+    (discountedWeeklyUsingFeeManwon + weeklyMgmtFeeManwon) * 4 +
     cleanFeeManwon;
   const realPyeong = room.pyeongSize ?? pyeong(room.squareMeterSize);
   const realSize = room.squareMeterSize ?? realPyeong * 3.305785;
@@ -840,10 +856,15 @@ function buildSamsamListing(room: SamsamRoomDetail): Listing {
       stayWeeks: SAMSAM_WEEKS,
       weeklyUsingFeeManwon,
       weeklyMgmtFeeManwon,
+      discountedWeeklyUsingFeeManwon,
       cleanFeeManwon,
       totalStayManwon,
+      fourWeekStayManwon,
+      appliedLongTermDiscountWeeks: applicableLongTermDiscount?.weeks,
+      appliedLongTermDiscountRate: applicableLongTermDiscount?.discountRate,
       monthlyEquivalentManwon,
       monthlyEquivalentWithMgmtManwon,
+      longTermDiscounts: room.longTermDiscounts ?? [],
       reviewScore,
       reviewCount,
       minimumContractWeeks: room.minimumContractWeeks,

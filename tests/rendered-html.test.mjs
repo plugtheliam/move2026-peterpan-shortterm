@@ -202,7 +202,9 @@ test("ships a broad slider-ready multi-source data set", async () => {
       (listing) =>
         listing.rawSignals?.startDate === "2026-08-30" &&
         listing.rawSignals?.endDate === "2026-11-22" &&
-        listing.rawSignals?.stayWeeks === 12,
+        listing.rawSignals?.stayWeeks === 12 &&
+        Number(listing.rawSignals?.fourWeekStayManwon ?? 0) > 0 &&
+        Array.isArray(listing.rawSignals?.longTermDiscounts),
     ),
   );
   assert.ok(samsamListings.some((listing) => listing.images.length > 0));

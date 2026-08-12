@@ -130,6 +130,10 @@ function monthlyPriceScore(value: number) {
 }
 
 function upfrontManwon(listing: Listing) {
+  const samsamFourWeek = Number(listing.rawSignals?.fourWeekStayManwon ?? 0);
+  if (listing.source === "삼삼엠투" && samsamFourWeek > 0) {
+    return samsamFourWeek;
+  }
   const samsamTotal = Number(listing.rawSignals?.totalStayManwon ?? 0);
   if (listing.source === "삼삼엠투" && samsamTotal > 0) return samsamTotal;
   const contractType = String(listing.rawSignals?.contractType ?? "");
@@ -1125,7 +1129,16 @@ export default function Home() {
           const isSamsam = source === "삼삼엠투";
           const weeklyUsingFee = Number(listing.rawSignals?.weeklyUsingFeeManwon ?? 0);
           const weeklyMgmtFee = Number(listing.rawSignals?.weeklyMgmtFeeManwon ?? 0);
-          const totalStay = Number(listing.rawSignals?.totalStayManwon ?? 0);
+          const discountedWeeklyUsingFee = Number(
+            listing.rawSignals?.discountedWeeklyUsingFeeManwon ?? weeklyUsingFee,
+          );
+          const fourWeekStay = Number(listing.rawSignals?.fourWeekStayManwon ?? 0);
+          const discountRate = Number(
+            listing.rawSignals?.appliedLongTermDiscountRate ?? 0,
+          );
+          const discountWeeks = Number(
+            listing.rawSignals?.appliedLongTermDiscountWeeks ?? 0,
+          );
           const monthlyWithMgmt = Number(
             listing.rawSignals?.monthlyEquivalentWithMgmtManwon ?? 0,
           );
@@ -1273,8 +1286,14 @@ export default function Home() {
                     <p>
                       <strong>33m2 비용</strong> 주 이용료 {weeklyUsingFee}만원 ·
                       주 관리비 {weeklyMgmtFee}만원 · 월환산 관리비 포함{" "}
-                      {monthlyWithMgmt || listing.monthlyManwon}만원 · 12주 총액{" "}
-                      {totalStay.toLocaleString("ko-KR")}만원
+                      {monthlyWithMgmt || listing.monthlyManwon}만원 · 4주 금액{" "}
+                      {fourWeekStay.toLocaleString("ko-KR")}만원
+                      {discountRate
+                        ? ` · 장기할인 ${discountWeeks}주+ ${discountRate}% 반영`
+                        : ""}
+                      {discountedWeeklyUsingFee !== weeklyUsingFee
+                        ? ` · 할인후 주 이용료 ${discountedWeeklyUsingFee}만원`
+                        : ""}
                     </p>
                   ) : null}
                   <p>
